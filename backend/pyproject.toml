@@ -35,11 +35,5 @@ where = ["."]
 include = ["app*"]
 
 [tool.pytest.ini_options]
-testpaths = [
-    "tests/test_health.py",
-    "tests/test_auth.py",
-    "tests/test_documents.py",
-    "tests/test_approvals.py",
-    "tests/test_classify.py",
-]
+testpaths = ["tests"]
 asyncio_mode = "auto"

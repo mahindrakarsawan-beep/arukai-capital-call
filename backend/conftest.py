@@ -1,6 +1,2 @@
-collect_ignore = [
-    "tests/test_auth.py",
-    "tests/test_classify.py",
-    "tests/test_documents.py",
-    "tests/test_approvals.py",
-]
+# M2 complete — all test files active.
+# (M1 scaffold had M2 tests skipped here; M2 removes the ignore list.)
