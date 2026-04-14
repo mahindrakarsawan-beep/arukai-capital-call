@@ -48,12 +48,17 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     token, expires_at = create_access_token(user.id, user.email, user.role)
     token_hash = _hash_token(token)
 
-    session = Session(
-        user_id=user.id,
-        token_hash=token_hash,
-        expires_at=expires_at,
+    # Upsert: if a session with this hash exists (same-second login), reuse it
+    existing_session = await db.execute(
+        select(Session).where(Session.token_hash == token_hash)
     )
-    db.add(session)
+    if existing_session.scalar_one_or_none() is None:
+        session = Session(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+        )
+        db.add(session)
 
     audit = AuditEvent(
         actor_user_id=user.id,

@@ -3,23 +3,11 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-client = TestClient(app)
-
-
-def _login(email: str, password: str) -> str:
+def _login(client: TestClient, email: str, password: str) -> str:
     resp = client.post("/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200
     return resp.json()["access_token"]
-
-
-def _admin_token() -> str:
-    return _login("admin@arukai.example", "admin123")
-
-
-def _reviewer_token() -> str:
-    return _login("reviewer@arukai.example", "reviewer123")
 
 
 def _make_pdf_bytes() -> bytes:
@@ -37,7 +25,7 @@ def _make_pdf_bytes() -> bytes:
     )
 
 
-def _upload_package(token: str, title: str = "Approval Test Package") -> str:
+def _upload_package(client: TestClient, token: str, title: str = "Approval Test Package") -> str:
     """Upload a package and return its id."""
     pdf = io.BytesIO(_make_pdf_bytes())
     resp = client.post(
@@ -50,10 +38,10 @@ def _upload_package(token: str, title: str = "Approval Test Package") -> str:
     return resp.json()["id"]
 
 
-def test_admin_can_approve():
+def test_admin_can_approve(client: TestClient):
     """Admin can approve a pending_review package."""
-    admin_token = _admin_token()
-    pkg_id = _upload_package(admin_token, "Admin Approve Test")
+    admin_token = _login(client, "admin@arukai.example", "admin123")
+    pkg_id = _upload_package(client, admin_token, "Admin Approve Test")
 
     response = client.post(
         f"/packages/{pkg_id}/approve",
@@ -65,10 +53,10 @@ def test_admin_can_approve():
     assert data["decision"] == "approved"
 
 
-def test_admin_can_reject():
+def test_admin_can_reject(client: TestClient):
     """Admin can reject a package."""
-    admin_token = _admin_token()
-    pkg_id = _upload_package(admin_token, "Admin Reject Test")
+    admin_token = _login(client, "admin@arukai.example", "admin123")
+    pkg_id = _upload_package(client, admin_token, "Admin Reject Test")
 
     response = client.post(
         f"/packages/{pkg_id}/approve",
@@ -80,11 +68,11 @@ def test_admin_can_reject():
     assert data["decision"] == "rejected"
 
 
-def test_reviewer_cannot_approve():
+def test_reviewer_cannot_approve(client: TestClient):
     """Reviewer role cannot approve — 403."""
-    admin_token = _admin_token()
-    reviewer_token = _reviewer_token()
-    pkg_id = _upload_package(admin_token, "Reviewer Blocked Test")
+    admin_token = _login(client, "admin@arukai.example", "admin123")
+    reviewer_token = _login(client, "reviewer@arukai.example", "reviewer123")
+    pkg_id = _upload_package(client, admin_token, "Reviewer Blocked Test")
 
     response = client.post(
         f"/packages/{pkg_id}/approve",
@@ -94,7 +82,7 @@ def test_reviewer_cannot_approve():
     assert response.status_code == 403
 
 
-def test_approve_requires_auth():
+def test_approve_requires_auth(client: TestClient):
     """Approve without token → 401."""
     response = client.post(
         "/packages/some-id/approve",
@@ -103,10 +91,10 @@ def test_approve_requires_auth():
     assert response.status_code == 401
 
 
-def test_audit_log_captured_after_approve():
+def test_audit_log_captured_after_approve(client: TestClient):
     """Audit log has an event after approval."""
-    admin_token = _admin_token()
-    pkg_id = _upload_package(admin_token, "Audit Trail Test")
+    admin_token = _login(client, "admin@arukai.example", "admin123")
+    pkg_id = _upload_package(client, admin_token, "Audit Trail Test")
 
     # Approve
     client.post(
@@ -129,15 +117,15 @@ def test_audit_log_captured_after_approve():
     assert any("upload" in a or "approve" in a for a in actions)
 
 
-def test_audit_log_requires_auth():
+def test_audit_log_requires_auth(client: TestClient):
     """Audit log without token → 401."""
     response = client.get("/audit/some-package-id")
     assert response.status_code == 401
 
 
-def test_approve_nonexistent_package():
+def test_approve_nonexistent_package(client: TestClient):
     """Approving a non-existent package → 404."""
-    admin_token = _admin_token()
+    admin_token = _login(client, "admin@arukai.example", "admin123")
     response = client.post(
         "/packages/00000000-0000-0000-0000-000000000000/approve",
         json={"decision": "approved", "note": ""},

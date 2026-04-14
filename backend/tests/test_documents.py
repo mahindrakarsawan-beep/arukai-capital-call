@@ -3,23 +3,11 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-client = TestClient(app)
-
-
-def _login(email: str, password: str) -> str:
+def _login(client: TestClient, email: str, password: str) -> str:
     resp = client.post("/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     return resp.json()["access_token"]
-
-
-def _admin_token() -> str:
-    return _login("admin@arukai.example", "admin123")
-
-
-def _reviewer_token() -> str:
-    return _login("reviewer@arukai.example", "reviewer123")
 
 
 def _make_pdf_bytes() -> bytes:
@@ -38,7 +26,7 @@ def _make_pdf_bytes() -> bytes:
     )
 
 
-def test_upload_requires_auth():
+def test_upload_requires_auth(client: TestClient):
     """Upload without token → 401."""
     pdf = io.BytesIO(_make_pdf_bytes())
     response = client.post(
@@ -49,9 +37,9 @@ def test_upload_requires_auth():
     assert response.status_code == 401
 
 
-def test_upload_with_reviewer_token():
+def test_upload_with_reviewer_token(client: TestClient):
     """Reviewer can upload a document."""
-    token = _reviewer_token()
+    token = _login(client, "reviewer@arukai.example", "reviewer123")
     pdf = io.BytesIO(_make_pdf_bytes())
     response = client.post(
         "/packages",
@@ -66,9 +54,9 @@ def test_upload_with_reviewer_token():
     assert data["status"] in ("pending_classification", "pending_review")
 
 
-def test_upload_with_admin_token():
+def test_upload_with_admin_token(client: TestClient):
     """Admin can also upload."""
-    token = _admin_token()
+    token = _login(client, "admin@arukai.example", "admin123")
     pdf = io.BytesIO(_make_pdf_bytes())
     response = client.post(
         "/packages",
@@ -79,23 +67,23 @@ def test_upload_with_admin_token():
     assert response.status_code == 201
 
 
-def test_list_packages_requires_auth():
+def test_list_packages_requires_auth(client: TestClient):
     """List without token → 401."""
     response = client.get("/packages")
     assert response.status_code == 401
 
 
-def test_list_packages_returns_list():
+def test_list_packages_returns_list(client: TestClient):
     """Authenticated user gets a list of packages."""
-    token = _admin_token()
+    token = _login(client, "admin@arukai.example", "admin123")
     response = client.get("/packages", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
 
-def test_get_package_detail():
+def test_get_package_detail(client: TestClient):
     """Get single package with classification."""
-    token = _admin_token()
+    token = _login(client, "admin@arukai.example", "admin123")
     # Upload first
     pdf = io.BytesIO(_make_pdf_bytes())
     upload = client.post(
@@ -114,9 +102,9 @@ def test_get_package_detail():
     assert "documents" in data
 
 
-def test_get_package_not_found():
+def test_get_package_not_found(client: TestClient):
     """Non-existent package → 404."""
-    token = _admin_token()
+    token = _login(client, "admin@arukai.example", "admin123")
     response = client.get(
         "/packages/00000000-0000-0000-0000-000000000000",
         headers={"Authorization": f"Bearer {token}"},
@@ -124,9 +112,9 @@ def test_get_package_not_found():
     assert response.status_code == 404
 
 
-def test_download_pdf():
+def test_download_pdf(client: TestClient):
     """Download raw PDF bytes."""
-    token = _reviewer_token()
+    token = _login(client, "reviewer@arukai.example", "reviewer123")
     pdf_bytes = _make_pdf_bytes()
     pdf = io.BytesIO(pdf_bytes)
     upload = client.post(
@@ -137,10 +125,6 @@ def test_download_pdf():
     )
     pkg_id = upload.json()["id"]
 
-    # Get the document id from detail
-    detail = client.get(f"/packages/{pkg_id}", headers={"Authorization": f"Bearer {token}"})
-    doc_id = detail.json()["documents"][0]["id"]
-
     # Download
     dl = client.get(
         f"/packages/{pkg_id}/pdf",
@@ -150,7 +134,7 @@ def test_download_pdf():
     assert dl.headers["content-type"].startswith("application/pdf")
 
 
-def test_download_requires_auth():
+def test_download_requires_auth(client: TestClient):
     """Download without token → 401."""
     response = client.get("/packages/some-id/pdf")
     assert response.status_code == 401

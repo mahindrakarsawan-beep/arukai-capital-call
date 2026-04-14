@@ -2,12 +2,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-client = TestClient(app)
-
-
-def test_login_happy_path():
+def test_login_happy_path(client: TestClient):
     """Seed admin user can login and receive JWT token."""
     response = client.post(
         "/auth/login",
@@ -20,7 +16,7 @@ def test_login_happy_path():
     assert len(data["access_token"]) > 20
 
 
-def test_login_wrong_password():
+def test_login_wrong_password(client: TestClient):
     """Wrong password returns 401."""
     response = client.post(
         "/auth/login",
@@ -29,7 +25,7 @@ def test_login_wrong_password():
     assert response.status_code == 401
 
 
-def test_login_unknown_email():
+def test_login_unknown_email(client: TestClient):
     """Unknown email returns 401."""
     response = client.post(
         "/auth/login",
@@ -38,7 +34,7 @@ def test_login_unknown_email():
     assert response.status_code == 401
 
 
-def test_login_reviewer():
+def test_login_reviewer(client: TestClient):
     """Seed reviewer user can also login."""
     response = client.post(
         "/auth/login",
@@ -48,7 +44,7 @@ def test_login_reviewer():
     assert "access_token" in response.json()
 
 
-def test_jwt_verification_via_me():
+def test_jwt_verification_via_me(client: TestClient):
     """Valid JWT allows access to /auth/me endpoint."""
     login_resp = client.post(
         "/auth/login",
@@ -64,19 +60,19 @@ def test_jwt_verification_via_me():
     assert "id" in user
 
 
-def test_me_without_token():
+def test_me_without_token(client: TestClient):
     """No token → 401."""
     response = client.get("/auth/me")
     assert response.status_code == 401
 
 
-def test_me_invalid_token():
+def test_me_invalid_token(client: TestClient):
     """Garbage token → 401."""
     response = client.get("/auth/me", headers={"Authorization": "Bearer garbage.token.here"})
     assert response.status_code == 401
 
 
-def test_logout():
+def test_logout(client: TestClient):
     """Logout invalidates the session — subsequent /auth/me with same token returns 401."""
     login_resp = client.post(
         "/auth/login",

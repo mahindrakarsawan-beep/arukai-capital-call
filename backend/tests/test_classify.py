@@ -6,10 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.classify import classify_document_text, ClassificationResult
-
-client = TestClient(app)
 
 
 # ---------------------------------------------------------------------------
@@ -74,8 +71,10 @@ async def test_classify_fallback_on_invalid_json():
         )
 
     assert result.fallback is True
-    assert result.document_type in ("other", "capital_call_notice", "subscription_agreement",
-                                     "side_letter", "k1", "wire_instructions")
+    assert result.document_type in (
+        "other", "capital_call_notice", "subscription_agreement",
+        "side_letter", "k1", "wire_instructions",
+    )
 
 
 @pytest.mark.asyncio
@@ -131,7 +130,7 @@ async def test_classify_subscription_document():
 # Integration: upload triggers classification (mocked)
 # ---------------------------------------------------------------------------
 
-def _login(email: str, password: str) -> str:
+def _login(client: TestClient, email: str, password: str) -> str:
     resp = client.post("/auth/login", json={"email": email, "password": password})
     return resp.json()["access_token"]
 
@@ -151,9 +150,9 @@ def _make_pdf_bytes() -> bytes:
     )
 
 
-def test_upload_stores_classification():
+def test_upload_stores_classification(client: TestClient):
     """After upload, classification is attached to the package (may be fallback if no API key)."""
-    token = _login("admin@arukai.example", "admin123")
+    token = _login(client, "admin@arukai.example", "admin123")
     mock_response_text = json.dumps({
         "document_type": "capital_call_notice",
         "confidence": 0.91,
@@ -179,9 +178,11 @@ def test_upload_stores_classification():
     detail = client.get(f"/packages/{pkg_id}", headers={"Authorization": f"Bearer {token}"})
     assert detail.status_code == 200
     detail_data = detail.json()
-    # documents[0] should have classification attached
     docs = detail_data.get("documents", [])
     assert len(docs) > 0
-    # classification may be in document or at package level
-    # Either way, document_type should be present somewhere in the response
-    assert detail_data is not None
+    # Classification should be attached to the document
+    doc = docs[0]
+    assert "classification" in doc
+    clf = doc["classification"]
+    assert clf is not None
+    assert clf["document_type"] == "capital_call_notice"
