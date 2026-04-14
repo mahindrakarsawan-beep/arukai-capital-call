@@ -1,0 +1,209 @@
+name: Deploy to Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      git_ref:
+        description: "Git ref to deploy"
+        required: true
+        default: "main"
+        type: string
+      linear_issue_ids:
+        description: "Comma-separated Linear issue IDs to comment/update (e.g. POR-139)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT: arukai-testbed
+  GCP_REGION: europe-west4
+  AR_REGISTRY: europe-west4-docker.pkg.dev/arukai-testbed/arukai-capital-call
+
+jobs:
+  deploy:
+    name: cloud-run deploy
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: cloud-run-${{ inputs.environment }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - name: Resolve deploy metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            BACKEND_SERVICE="arukai-capital-call-backend"
+            FRONTEND_SERVICE="arukai-capital-call-frontend"
+          else
+            BACKEND_SERVICE="arukai-capital-call-backend-staging"
+            FRONTEND_SERVICE="arukai-capital-call-frontend-staging"
+          fi
+          TIMESTAMP="$(date +%Y%m%d%H%M%S)"
+          BACKEND_IMAGE="${{ env.AR_REGISTRY }}/backend:${{ inputs.git_ref }}-${TIMESTAMP}"
+          FRONTEND_IMAGE="${{ env.AR_REGISTRY }}/frontend:${{ inputs.git_ref }}-${TIMESTAMP}"
+          echo "backend_service=$BACKEND_SERVICE" >> "$GITHUB_OUTPUT"
+          echo "frontend_service=$FRONTEND_SERVICE" >> "$GITHUB_OUTPUT"
+          echo "backend_image=$BACKEND_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=$FRONTEND_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push backend image
+        run: |
+          set -euo pipefail
+          docker build \
+            --tag "${{ steps.meta.outputs.backend_image }}" \
+            ./backend
+          docker push "${{ steps.meta.outputs.backend_image }}"
+
+      - name: Build and push frontend image
+        run: |
+          set -euo pipefail
+          docker build \
+            --tag "${{ steps.meta.outputs.frontend_image }}" \
+            ./frontend
+          docker push "${{ steps.meta.outputs.frontend_image }}"
+
+      - name: Deploy backend to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ steps.meta.outputs.backend_service }}
+          region: ${{ env.GCP_REGION }}
+          image: ${{ steps.meta.outputs.backend_image }}
+          secrets: |
+            DATABASE_URL=DATABASE_URL:latest
+            JWT_SECRET=JWT_SECRET:latest
+            ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
+
+      - name: Deploy frontend to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ steps.meta.outputs.frontend_service }}
+          region: ${{ env.GCP_REGION }}
+          image: ${{ steps.meta.outputs.frontend_image }}
+          env_vars: |
+            NEXT_PUBLIC_API_URL=${{ vars.BACKEND_URL }}
+
+      - name: Smoke-test backend
+        run: |
+          set -euo pipefail
+          SERVICE_URL=$(gcloud run services describe "${{ steps.meta.outputs.backend_service }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format="value(status.url)")
+          echo "Backend URL: $SERVICE_URL"
+          STATUS=$(curl -sf "$SERVICE_URL/health" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))")
+          if [ "$STATUS" != "ok" ]; then
+            echo "Health check failed — status was: $STATUS"; exit 1
+          fi
+          echo "Health check passed."
+
+      - name: Update Linear after deploy
+        if: ${{ inputs.linear_issue_ids != '' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_IDS: ${{ inputs.linear_issue_ids }}
+          TARGET_ENV: ${{ inputs.environment }}
+          BACKEND_SERVICE: ${{ steps.meta.outputs.backend_service }}
+          GIT_REF: ${{ inputs.git_ref }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          api_key = os.environ["LINEAR_API_KEY"]
+          ids = [x.strip() for x in os.environ["LINEAR_IDS"].split(",") if x.strip()]
+          target_env = os.environ["TARGET_ENV"]
+          service_name = os.environ["BACKEND_SERVICE"]
+          git_ref = os.environ["GIT_REF"]
+          run_url = os.environ["GITHUB_RUN_URL"]
+
+          def gql(query: str, variables: dict) -> dict:
+              req = urllib.request.Request(
+                  "https://api.linear.app/graphql",
+                  data=json.dumps({"query": query, "variables": variables}).encode("utf-8"),
+                  headers={
+                      "Authorization": api_key,
+                      "Content-Type": "application/json",
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  return json.loads(resp.read().decode("utf-8"))
+
+          resolve_q = """
+          query ResolveIssue($id: String!) {
+            issue(id: $id) {
+              id
+              identifier
+              team {
+                states {
+                  nodes { id name }
+                }
+              }
+            }
+          }
+          """
+
+          update_q = """
+          mutation UpdateIssue($id: String!, $stateId: String!) {
+            issueUpdate(id: $id, input: { stateId: $stateId }) {
+              success
+            }
+          }
+          """
+
+          comment_q = """
+          mutation CommentIssue($issueId: String!, $body: String!) {
+            commentCreate(input: { issueId: $issueId, body: $body }) {
+              success
+            }
+          }
+          """
+
+          for issue_id in ids:
+              resolved = gql(resolve_q, {"id": issue_id})
+              issue = resolved["data"]["issue"]
+              issue_uuid = issue["id"]
+              states = issue["team"]["states"]["nodes"]
+
+              body = (
+                  f"Cloud Run deploy succeeded.\n\n"
+                  f"- Environment: `{target_env}`\n"
+                  f"- Service: `{service_name}`\n"
+                  f"- Ref: `{git_ref}`\n"
+                  f"- Workflow: {run_url}"
+              )
+              gql(comment_q, {"issueId": issue_uuid, "body": body})
+
+              if target_env == "production":
+                  done = next((s for s in states if s["name"] == "Done"), None)
+                  if done:
+                      gql(update_q, {"id": issue_uuid, "stateId": done["id"]})
+          PY

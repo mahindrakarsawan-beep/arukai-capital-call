@@ -1,0 +1,87 @@
+name: CI - Backend pytest + Frontend tsc/test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  pytest:
+    name: pytest (backend)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - name: Run pytest
+        working-directory: backend
+        env:
+          APP_ENV: test
+          DATABASE_URL: ""
+          JWT_SECRET: test-secret
+          ANTHROPIC_API_KEY: ""
+        run: |
+          mkdir -p reports
+          pytest tests/ \
+            --junitxml=reports/junit.xml \
+            -v \
+            --tb=short
+
+      - name: Upload JUnit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: backend/reports/junit.xml
+          retention-days: 14
+
+      - name: Publish test results (PR check)
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: backend/reports/junit.xml
+          check_name: pytest results
+          fail_on_failure: true
+
+  frontend:
+    name: frontend tsc + test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        working-directory: frontend
+        run: npm run test:ci
