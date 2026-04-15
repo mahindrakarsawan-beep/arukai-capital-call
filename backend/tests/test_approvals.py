@@ -29,7 +29,7 @@ def _upload_package(client: TestClient, token: str, title: str = "Approval Test 
     """Upload a package and return its id."""
     pdf = io.BytesIO(_make_pdf_bytes())
     resp = client.post(
-        "/packages",
+        "/documents/upload",
         data={"title": title},
         files={"file": ("doc.pdf", pdf, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
@@ -44,7 +44,7 @@ def test_admin_can_approve(client: TestClient):
     pkg_id = _upload_package(client, admin_token, "Admin Approve Test")
 
     response = client.post(
-        f"/packages/{pkg_id}/approve",
+        f"/approvals/{pkg_id}",
         json={"decision": "approved", "note": "Looks good"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -59,7 +59,7 @@ def test_admin_can_reject(client: TestClient):
     pkg_id = _upload_package(client, admin_token, "Admin Reject Test")
 
     response = client.post(
-        f"/packages/{pkg_id}/approve",
+        f"/approvals/{pkg_id}",
         json={"decision": "rejected", "note": "Insufficient documentation"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -75,7 +75,7 @@ def test_reviewer_cannot_approve(client: TestClient):
     pkg_id = _upload_package(client, admin_token, "Reviewer Blocked Test")
 
     response = client.post(
-        f"/packages/{pkg_id}/approve",
+        f"/approvals/{pkg_id}",
         json={"decision": "approved", "note": ""},
         headers={"Authorization": f"Bearer {reviewer_token}"},
     )
@@ -85,7 +85,7 @@ def test_reviewer_cannot_approve(client: TestClient):
 def test_approve_requires_auth(client: TestClient):
     """Approve without token → 401."""
     response = client.post(
-        "/packages/some-id/approve",
+        "/approvals/some-id",
         json={"decision": "approved", "note": ""},
     )
     assert response.status_code == 401
@@ -98,7 +98,7 @@ def test_audit_log_captured_after_approve(client: TestClient):
 
     # Approve
     client.post(
-        f"/packages/{pkg_id}/approve",
+        f"/approvals/{pkg_id}",
         json={"decision": "approved", "note": "Audit test"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -127,7 +127,7 @@ def test_approve_nonexistent_package(client: TestClient):
     """Approving a non-existent package → 404."""
     admin_token = _login(client, "admin@arukai.example", "admin123")
     response = client.post(
-        "/packages/00000000-0000-0000-0000-000000000000/approve",
+        "/approvals/00000000-0000-0000-0000-000000000000",
         json={"decision": "approved", "note": ""},
         headers={"Authorization": f"Bearer {admin_token}"},
     )

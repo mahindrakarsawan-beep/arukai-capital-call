@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
 from app.routers import approvals, auth, packages
+from app.routers.approvals import audit_router
 
 
 @asynccontextmanager
@@ -50,9 +51,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    import os
+    cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    cors_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()] or [
+        "http://localhost:3000",
+        "https://arukai-capital-call-frontend-staging-1035777337524.europe-west4.run.app",
+    ]
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -61,6 +68,7 @@ def create_app() -> FastAPI:
     application.include_router(auth.router)
     application.include_router(packages.router)
     application.include_router(approvals.router)
+    application.include_router(audit_router)
 
     @application.get("/health")
     async def health() -> dict:

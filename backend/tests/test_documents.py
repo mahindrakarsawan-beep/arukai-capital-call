@@ -30,7 +30,7 @@ def test_upload_requires_auth(client: TestClient):
     """Upload without token → 401."""
     pdf = io.BytesIO(_make_pdf_bytes())
     response = client.post(
-        "/packages",
+        "/documents/upload",
         data={"title": "Test Package"},
         files={"file": ("test.pdf", pdf, "application/pdf")},
     )
@@ -42,7 +42,7 @@ def test_upload_with_reviewer_token(client: TestClient):
     token = _login(client, "reviewer@arukai.example", "reviewer123")
     pdf = io.BytesIO(_make_pdf_bytes())
     response = client.post(
-        "/packages",
+        "/documents/upload",
         data={"title": "Q2 Capital Call"},
         files={"file": ("capital_call.pdf", pdf, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
@@ -59,7 +59,7 @@ def test_upload_with_admin_token(client: TestClient):
     token = _login(client, "admin@arukai.example", "admin123")
     pdf = io.BytesIO(_make_pdf_bytes())
     response = client.post(
-        "/packages",
+        "/documents/upload",
         data={"title": "Admin Upload Test"},
         files={"file": ("doc.pdf", pdf, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
@@ -69,14 +69,14 @@ def test_upload_with_admin_token(client: TestClient):
 
 def test_list_packages_requires_auth(client: TestClient):
     """List without token → 401."""
-    response = client.get("/packages")
+    response = client.get("/documents")
     assert response.status_code == 401
 
 
 def test_list_packages_returns_list(client: TestClient):
     """Authenticated user gets a list of packages."""
     token = _login(client, "admin@arukai.example", "admin123")
-    response = client.get("/packages", headers={"Authorization": f"Bearer {token}"})
+    response = client.get("/documents", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
@@ -87,7 +87,7 @@ def test_get_package_detail(client: TestClient):
     # Upload first
     pdf = io.BytesIO(_make_pdf_bytes())
     upload = client.post(
-        "/packages",
+        "/documents/upload",
         data={"title": "Detail Test"},
         files={"file": ("doc.pdf", pdf, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
@@ -95,7 +95,7 @@ def test_get_package_detail(client: TestClient):
     pkg_id = upload.json()["id"]
 
     # Get detail
-    response = client.get(f"/packages/{pkg_id}", headers={"Authorization": f"Bearer {token}"})
+    response = client.get(f"/documents/{pkg_id}", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == pkg_id
@@ -106,7 +106,7 @@ def test_get_package_not_found(client: TestClient):
     """Non-existent package → 404."""
     token = _login(client, "admin@arukai.example", "admin123")
     response = client.get(
-        "/packages/00000000-0000-0000-0000-000000000000",
+        "/documents/00000000-0000-0000-0000-000000000000",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 404
@@ -118,7 +118,7 @@ def test_download_pdf(client: TestClient):
     pdf_bytes = _make_pdf_bytes()
     pdf = io.BytesIO(pdf_bytes)
     upload = client.post(
-        "/packages",
+        "/documents/upload",
         data={"title": "Download Test"},
         files={"file": ("doc.pdf", pdf, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
@@ -127,7 +127,7 @@ def test_download_pdf(client: TestClient):
 
     # Download
     dl = client.get(
-        f"/packages/{pkg_id}/pdf",
+        f"/documents/{pkg_id}/pdf",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert dl.status_code == 200
@@ -136,5 +136,5 @@ def test_download_pdf(client: TestClient):
 
 def test_download_requires_auth(client: TestClient):
     """Download without token → 401."""
-    response = client.get("/packages/some-id/pdf")
+    response = client.get("/documents/some-id/pdf")
     assert response.status_code == 401

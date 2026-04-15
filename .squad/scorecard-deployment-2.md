@@ -326,13 +326,34 @@ Per ARU-10: contribution margin is undefined for internal deployments. The $2,10
 
 ### 9.3 Patterns Added to Library (from D2)
 
-| Pattern | Category | CP Weight | Reuse Readiness |
-|---------|----------|-----------|-----------------|
-| JWT RBAC middleware (2-role FastAPI) | Backend scaffold | 3.0 | ready |
-| Approval state machine (status enum + audit event) | Backend scaffold | 2.0 | needs-abstraction |
-| Immutable audit trail (append-only events table) | Infrastructure | 2.0 | ready |
-| Document classification pipeline (Haiku + prompt caching) | AI pipeline | 2.0 | ready |
-| Next.js 4-page scaffold (login + dashboard + new + detail) | Frontend foundation | 2.0 | needs-abstraction |
+| Pattern | Category | CP Weight | Reuse Readiness | Origin |
+|---------|----------|-----------|-----------------|--------|
+| JWT RBAC middleware (2-role FastAPI) | Backend scaffold | 3.0 | ready | Projected / built in D2 |
+| Approval state machine (status enum + audit event) | Backend scaffold | 2.0 | needs-abstraction | Projected / built in D2 |
+| Immutable audit trail (append-only events table) | Infrastructure | 2.0 | ready | Projected / built in D2 |
+| Document classification pipeline (Haiku + prompt caching) | AI pipeline | 2.0 | ready | Projected / built in D2 |
+| Next.js 4-page scaffold (login + dashboard + new + detail) | Frontend foundation | 2.0 | needs-abstraction | Projected / built in D2 |
+| **ARU-02-P20 — Browser-based E2E smoke test (Playwright)** | **Quality system** | **2.0** | **needs-abstraction** | **Discovered-in-field via POR-146 / ARU-16 — was needed and missing from D1 library** |
+
+### 9.3.1 Discovered-in-Field Pattern — ARU-02-P20
+
+Per ARU-16 incident report (`.squad/ARU-16-incident-report.md`), the D1 library had no browser E2E pattern because D1 was a React Native app consumed through Expo Go, where the device itself acted as the integration harness. D2 is web (Next.js) — the browser IS the integration surface, and five integration defects reached the client because nothing put a browser in the loop.
+
+ARU-02-P20 is therefore classified as a **discovered-in-field** pattern, not a projected one. Reuse accounting treatment:
+
+- The D2 reuse projection (66.1%) did NOT include P20 in the denominator — it was unknown at projection time
+- The D2 actual scoring (54.8%) likewise does NOT award points for P20 — the pattern was missing, not reused
+- For D3 and beyond, ARU-02-P20 joins the reuse measurement denominator with CP weight 2.0, Medium (quality system) tier
+- Future deployments that reuse P20 as-is or adapt it will earn points; D2 itself earns 0 because P20 did not exist yet
+
+This keeps the reuse model honest: D2's weighted reuse score is not retroactively inflated by a pattern that was created BECAUSE D2 broke. It is tracked as a library addition for future deployments.
+
+### 9.3.2 Impact on library size
+
+Pre-ARU-16 library: 19 patterns (ARU-02-P01 through P19), max 31.0 points.
+Post-ARU-16 library: **20 patterns (adds P20)**, max 33.0 points (adds 2.0 for Medium CP weight).
+
+D3 and later deployments will be scored against 33.0 possible points. Any reuse measurement published before 2026-04-15 (D2 v0.1 scorecard) uses the 19-pattern / 31.0-point denominator for comparability; all future measurements use 20 / 33.0.
 
 ---
 

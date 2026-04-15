@@ -11,7 +11,8 @@ from app.auth import get_current_user, require_role
 from app.db import get_db
 from app.models import Approval, AuditEvent, Package, User
 
-router = APIRouter(tags=["approvals"])
+router = APIRouter(prefix="/approvals", tags=["approvals"])
+audit_router = APIRouter(tags=["audit"])
 
 
 class ApproveRequest(BaseModel):
@@ -42,7 +43,7 @@ class AuditEventOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-@router.post("/packages/{pkg_id}/approve", response_model=ApprovalOut)
+@router.post("/{pkg_id}", response_model=ApprovalOut)
 async def approve_package(
     pkg_id: str,
     body: ApproveRequest,
@@ -93,7 +94,7 @@ async def approve_package(
     )
 
 
-@router.get("/audit/{pkg_id}", response_model=list[AuditEventOut])
+@audit_router.get("/audit/{pkg_id}", response_model=list[AuditEventOut])
 async def get_audit_log(
     pkg_id: str,
     current_user: User = Depends(get_current_user),

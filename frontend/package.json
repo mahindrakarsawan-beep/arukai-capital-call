@@ -8,10 +8,13 @@
     "start": "next start",
     "lint": "next lint",
     "test": "jest --passWithNoTests",
-    "test:ci": "jest --ci --passWithNoTests"
+    "test:ci": "jest --ci --passWithNoTests",
+    "e2e": "playwright test",
+    "e2e:staging": "FRONTEND_URL=https://arukai-capital-call-frontend-staging-1035777337524.europe-west4.run.app playwright test"
   },
   "dependencies": {
     "@tailwindcss/forms": "^0.5.11",
+    "@tailwindcss/postcss": "^4.2.2",
     "autoprefixer": "^10.5.0",
     "next": "15.3.0",
     "postcss": "^8.5.9",
@@ -24,6 +27,7 @@
     "@babel/preset-env": "^7.29.2",
     "@babel/preset-react": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
+    "@playwright/test": "^1.59.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

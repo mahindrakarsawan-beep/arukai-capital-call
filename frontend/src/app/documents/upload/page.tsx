@@ -70,6 +70,9 @@ export default function UploadPage() {
       }
 
       const form = new FormData();
+      // Use filename (without extension) as the package title
+      const title = file.name.replace(/\.[^/.]+$/, "") || file.name;
+      form.append("title", title);
       form.append("file", file);
 
       const res = await fetch(
@@ -85,7 +88,15 @@ export default function UploadPage() {
         let message = `Upload failed (${res.status})`;
         try {
           const body = await res.json();
-          message = body?.detail ?? body?.message ?? message;
+          const raw = body?.detail ?? body?.message;
+          if (typeof raw === "string") {
+            message = raw;
+          } else if (Array.isArray(raw) && raw.length > 0) {
+            // FastAPI pydantic validation errors: [{loc, msg, type, input}]
+            message = raw.map((e: { msg?: string }) => e?.msg ?? JSON.stringify(e)).join("; ");
+          } else if (raw != null) {
+            message = JSON.stringify(raw);
+          }
         } catch {
           // ignore
         }

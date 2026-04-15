@@ -10,14 +10,26 @@ DATABASE_URL = os.environ.get(
 )
 
 # Neon Postgres uses postgresql:// — remap to async driver
-if DATABASE_URL.startswith("postgresql://"):
+_ssl = False
+if DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgresql+asyncpg://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+    # asyncpg does not accept sslmode as a query param; strip it and use connect_args instead
+    if "sslmode=require" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("?sslmode=require", "").replace("&sslmode=require", "")
+        _ssl = True
 elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    if "sslmode=require" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("?sslmode=require", "").replace("&sslmode=require", "")
+        _ssl = True
 
-_connect_args = {}
+_connect_args: dict = {}
 if DATABASE_URL.startswith("sqlite"):
     _connect_args = {"check_same_thread": False}
+elif _ssl:
+    import ssl as _ssl_mod
+    _ssl_ctx = _ssl_mod.create_default_context()
+    _connect_args = {"ssl": _ssl_ctx}
 
 engine = create_async_engine(
     DATABASE_URL,

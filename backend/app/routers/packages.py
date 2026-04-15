@@ -13,7 +13,7 @@ from app.classify import classify_document_text, extract_pdf_text
 from app.db import get_db
 from app.models import AuditEvent, Classification, Document, Package, User
 
-router = APIRouter(prefix="/packages", tags=["packages"])
+router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ class PackageDetailOut(PackageOut):
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("", status_code=201, response_model=PackageOut)
+@router.post("/upload", status_code=201, response_model=PackageOut)
 async def upload_package(
     title: str = Form(...),
     file: UploadFile = ...,

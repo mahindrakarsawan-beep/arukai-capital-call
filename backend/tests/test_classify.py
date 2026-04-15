@@ -166,7 +166,7 @@ def test_upload_stores_classification(client: TestClient):
 
         pdf = io.BytesIO(_make_pdf_bytes())
         resp = client.post(
-            "/packages",
+            "/documents/upload",
             data={"title": "Classify Integration Test"},
             files={"file": ("capital.pdf", pdf, "application/pdf")},
             headers={"Authorization": f"Bearer {token}"},
@@ -175,7 +175,7 @@ def test_upload_stores_classification(client: TestClient):
     assert resp.status_code == 201
     pkg_id = resp.json()["id"]
 
-    detail = client.get(f"/packages/{pkg_id}", headers={"Authorization": f"Bearer {token}"})
+    detail = client.get(f"/documents/{pkg_id}", headers={"Authorization": f"Bearer {token}"})
     assert detail.status_code == 200
     detail_data = detail.json()
     docs = detail_data.get("documents", [])
