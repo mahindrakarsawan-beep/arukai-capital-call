@@ -46,7 +46,7 @@ export function DocumentCard({ document: doc }: DocumentCardProps) {
         {uploadedAt}
       </td>
       <td className="px-4 py-3">
-        <StatusPill status={doc?.status ?? null} />
+        <StatusPill status={doc?.status ?? null} confidence={doc?.confidence ?? null} />
       </td>
       <td className="px-4 py-3">
         <Link

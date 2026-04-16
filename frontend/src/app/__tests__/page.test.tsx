@@ -1,6 +1,7 @@
 /**
- * Login page tests — POR-142 M3
- * Tests: renders, calls login on submit, shows error on failure
+ * Login page tests — POR-147 / ARU-17 Phase A
+ * Tests: v0.2 copy ("Authorized access", "Enter workflow", "Credentialed email", "Passphrase")
+ * Auth error: "Credentials not recognized. Access not granted."
  */
 
 import React from "react";
@@ -37,18 +38,9 @@ jest.mock("react", () => {
 
 import LoginPage from "@/app/page";
 
-describe("LoginPage", () => {
+describe("LoginPage — v0.2 atelier copy", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-  });
-
-  it("renders the login form with email and password fields", () => {
-    render(<LoginPage />);
-
-    expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
   });
 
   it("renders Arukai wordmark", () => {
@@ -56,45 +48,71 @@ describe("LoginPage", () => {
     expect(screen.getByText("Arukai")).toBeInTheDocument();
   });
 
-  it("renders the login form element", () => {
+  it('renders "Private workflow environment" tagline', () => {
     render(<LoginPage />);
-    // The form should be present
-    const form = document.querySelector("form");
-    expect(form).toBeInTheDocument();
+    expect(screen.getByText(/private workflow environment/i)).toBeInTheDocument();
   });
 
-  it("shows error message when loginAction returns an error", async () => {
-    const { loginAction } = require("@/lib/actions");
-    loginAction.mockResolvedValue({ error: "Invalid email or password." });
-
+  it('renders "Authorized access" card heading', () => {
     render(<LoginPage />);
+    expect(screen.getByText(/authorized access/i)).toBeInTheDocument();
+  });
 
-    const emailInput = screen.getByLabelText(/email/i);
-    const passwordInput = screen.getByLabelText(/password/i);
-    const submitButton = screen.getByRole("button", { name: /sign in/i });
+  it('renders "Credentialed email" label', () => {
+    render(<LoginPage />);
+    expect(screen.getByText(/credentialed email/i)).toBeInTheDocument();
+  });
 
-    fireEvent.change(emailInput, { target: { value: "bad@test.com" } });
-    fireEvent.change(passwordInput, { target: { value: "wrong" } });
-    fireEvent.click(submitButton);
+  it('renders "Passphrase" label', () => {
+    render(<LoginPage />);
+    expect(screen.getByText(/passphrase/i)).toBeInTheDocument();
+  });
 
-    // Form action result is reflected via useActionState
-    // The mock redirects the action state through our mock
-    await waitFor(() => {
-      // error panel should appear if state.error is populated
-      // Verify the action was triggered (submit happened)
-      expect(loginAction).toHaveBeenCalledTimes(1);
-    });
+  it('renders "Enter workflow" submit button', () => {
+    render(<LoginPage />);
+    expect(screen.getByRole("button", { name: /enter workflow/i })).toBeInTheDocument();
   });
 
   it("email input has correct type", () => {
     render(<LoginPage />);
-    const emailInput = screen.getByLabelText(/email/i);
+    const emailInput = screen.getByLabelText(/credentialed email/i);
     expect(emailInput).toHaveAttribute("type", "email");
   });
 
   it("password input has correct type", () => {
     render(<LoginPage />);
-    const passwordInput = screen.getByLabelText(/password/i);
+    const passwordInput = screen.getByLabelText(/passphrase/i);
     expect(passwordInput).toHaveAttribute("type", "password");
+  });
+
+  it("renders the login form element", () => {
+    render(<LoginPage />);
+    const form = document.querySelector("form");
+    expect(form).toBeInTheDocument();
+  });
+
+  it('does NOT contain banned v0.1 string "Sign in" as button label', () => {
+    render(<LoginPage />);
+    const buttons = screen.queryAllByRole("button", { name: /^sign in$/i });
+    expect(buttons).toHaveLength(0);
+  });
+
+  it("shows error message when loginAction returns an error", async () => {
+    const { loginAction } = require("@/lib/actions");
+    loginAction.mockResolvedValue({ error: "401 Unauthorized" });
+
+    render(<LoginPage />);
+
+    const emailInput = screen.getByLabelText(/credentialed email/i);
+    const passwordInput = screen.getByLabelText(/passphrase/i);
+    const submitButton = screen.getByRole("button", { name: /enter workflow/i });
+
+    fireEvent.change(emailInput, { target: { value: "bad@test.com" } });
+    fireEvent.change(passwordInput, { target: { value: "wrong" } });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => {
+      expect(loginAction).toHaveBeenCalledTimes(1);
+    });
   });
 });

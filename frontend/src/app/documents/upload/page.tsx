@@ -1,10 +1,12 @@
 "use client";
 
 /**
- * Upload page — /documents/upload
- * PDF-only file input with 20MB client-side size check.
- * On success: redirects to /documents/[id] to show classification result.
- * Shows loading state while the backend classifies.
+ * Intake page — /documents/upload (spec §1.2, §1.7)
+ * H1: "Begin governed intake"
+ * Subtext: per spec §1.2 upload subtext.
+ * Submit: "Submit package for intake"
+ * Cancel: "Discard draft"
+ * File label: "Source PDF"
  */
 
 import React, { useRef, useState } from "react";
@@ -17,6 +19,7 @@ const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
 export default function UploadPage() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -33,26 +36,30 @@ export default function UploadPage() {
     }
 
     if (selected.type !== "application/pdf") {
-      setFileError("Only PDF files are accepted.");
+      setFileError("Only PDF packages are accepted for intake.");
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
 
     if (selected.size > MAX_SIZE_BYTES) {
-      setFileError("File exceeds the 20 MB limit.");
+      setFileError("File exceeds the 20 MB intake limit.");
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
 
     setFile(selected);
+    // Auto-fill package reference from filename if blank
+    if (titleRef.current && !titleRef.current.value) {
+      titleRef.current.value = selected.name.replace(/\.[^/.]+$/, "") || selected.name;
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
-      setFileError("Please select a PDF file to upload.");
+      setFileError("Select a PDF package to begin intake.");
       return;
     }
 
@@ -60,7 +67,6 @@ export default function UploadPage() {
     setServerError(null);
 
     try {
-      // Get token from cookie via fetch to our own API route
       const tokenRes = await fetch("/api/token");
       const { token } = await tokenRes.json();
 
@@ -70,8 +76,10 @@ export default function UploadPage() {
       }
 
       const form = new FormData();
-      // Use filename (without extension) as the package title
-      const title = file.name.replace(/\.[^/.]+$/, "") || file.name;
+      const title =
+        (titleRef.current?.value?.trim()) ||
+        file.name.replace(/\.[^/.]+$/, "") ||
+        file.name;
       form.append("title", title);
       form.append("file", file);
 
@@ -85,14 +93,13 @@ export default function UploadPage() {
       );
 
       if (!res.ok) {
-        let message = `Upload failed (${res.status})`;
+        let message = `Intake failed (${res.status})`;
         try {
           const body = await res.json();
           const raw = body?.detail ?? body?.message;
           if (typeof raw === "string") {
             message = raw;
           } else if (Array.isArray(raw) && raw.length > 0) {
-            // FastAPI pydantic validation errors: [{loc, msg, type, input}]
             message = raw.map((e: { msg?: string }) => e?.msg ?? JSON.stringify(e)).join("; ");
           } else if (raw != null) {
             message = JSON.stringify(raw);
@@ -108,7 +115,7 @@ export default function UploadPage() {
       router.push(`/documents/${doc.id}`);
     } catch (err) {
       setServerError(
-        err instanceof Error ? err.message : "Upload failed. Please try again."
+        err instanceof Error ? err.message : "Package submitted. Intake in progress."
       );
     } finally {
       setSubmitting(false);
@@ -122,9 +129,15 @@ export default function UploadPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <a
             href="/documents"
-            className="font-display text-lg font-semibold text-fg-obsidian"
+            className="font-display text-lg font-light text-fg-obsidian tracking-tight"
           >
-            Arukai Capital Call
+            Arukai
+          </a>
+          <a
+            href="/documents"
+            className="font-interface text-sm text-fg-muted hover:text-fg-obsidian transition-colors duration-fast"
+          >
+            Console
           </a>
         </div>
       </header>
@@ -132,10 +145,11 @@ export default function UploadPage() {
       <main className="mx-auto w-full max-w-xl flex-1 px-4 py-10">
         <div className="mb-6">
           <h1 className="font-display text-2xl font-light text-fg-obsidian tracking-tight">
-            Upload document
+            Begin governed intake
           </h1>
           <p className="mt-1 font-interface text-sm text-fg-muted">
-            PDF only — max 20 MB. The document will be classified automatically.
+            Submit a capital-call package. Intake is governed: classification, review, and
+            attestation steps are recorded. PDF, up to 20 MB.
           </p>
         </div>
 
@@ -146,12 +160,31 @@ export default function UploadPage() {
           className="rounded-lg border border-border-hairline bg-bg-bone p-6 shadow-sm"
           noValidate
         >
+          {/* Package reference */}
+          <div className="mb-4 flex flex-col gap-1">
+            <label
+              htmlFor="title"
+              className="font-interface text-xs font-medium uppercase tracking-widest text-fg-muted"
+            >
+              Package reference
+            </label>
+            <input
+              ref={titleRef}
+              id="title"
+              name="title"
+              type="text"
+              placeholder="e.g. Fund III — Q2 capital call"
+              className="w-full rounded-md border border-border-hairline bg-bg-parchment px-3 py-2 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:ring-2 focus:ring-fg-slate focus:ring-offset-0"
+            />
+          </div>
+
+          {/* Source PDF */}
           <div className="flex flex-col gap-1">
             <label
               htmlFor="file"
               className="font-interface text-xs font-medium uppercase tracking-widest text-fg-muted"
             >
-              PDF file
+              Source PDF
             </label>
             <input
               ref={fileRef}
@@ -162,6 +195,8 @@ export default function UploadPage() {
               onChange={handleFileChange}
               className="block w-full rounded-md border border-border-hairline bg-bg-parchment px-3 py-2 font-interface text-sm text-fg-obsidian file:mr-3 file:rounded file:border-0 file:bg-fg-obsidian file:px-3 file:py-1 file:font-interface file:text-xs file:text-bg-bone file:font-medium cursor-pointer"
             />
+            {/* Placeholder text for file input */}
+            <span className="sr-only">Select package PDF</span>
             {fileError && (
               <p
                 className="font-interface text-xs text-data-negative"
@@ -173,15 +208,14 @@ export default function UploadPage() {
             {file && !fileError && (
               <p className="font-interface text-xs text-data-positive">
                 {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB) — ready
-                to upload
               </p>
             )}
           </div>
 
           {submitting && (
-            <div className="mt-4 rounded-md bg-[rgba(184,145,78,0.08)] px-3 py-2.5">
-              <p className="font-interface text-sm text-[#9A7639]">
-                Uploading and classifying document — this may take a moment…
+            <div className="mt-4 rounded-md bg-[rgba(60,72,88,0.06)] px-3 py-2.5">
+              <p className="font-interface text-sm text-fg-slate">
+                Package submitted. Intake in progress…
               </p>
             </div>
           )}
@@ -193,11 +227,11 @@ export default function UploadPage() {
               loading={submitting}
               disabled={!file || submitting}
             >
-              Upload and classify
+              Submit package for intake
             </Button>
             <a href="/documents">
               <Button type="button" variant="secondary">
-                Cancel
+                Discard draft
               </Button>
             </a>
           </div>

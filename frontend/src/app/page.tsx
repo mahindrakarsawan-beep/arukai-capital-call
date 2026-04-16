@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * Login page — /
- * Email + password form, POST /auth/login via server action,
- * stores JWT in httpOnly cookie, redirects to /documents on success.
+ * Login page — / (spec §8)
+ * Obsidian background, bone card, Cormorant wordmark, DM Sans interface.
+ * Submit button: neutral dark (never brass on login — spec §8.2).
+ * Copy: "Authorized access", "Enter workflow", "Credentialed email", "Passphrase".
  */
 
 import React, { useActionState } from "react";
@@ -20,58 +21,70 @@ export default function LoginPage() {
   );
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-bg-parchment px-4">
-      <div className="w-full max-w-sm">
-        {/* Wordmark */}
-        <div className="mb-8 text-center">
-          <h1 className="font-display text-3xl font-light text-fg-obsidian tracking-tight">
-            Arukai
-          </h1>
-          <p className="mt-1 font-interface text-sm text-fg-muted">
-            Capital Call Management
-          </p>
-        </div>
+    <main
+      className="flex min-h-screen flex-col items-center justify-center px-4"
+      style={{ backgroundColor: "#0D0F12" }}
+    >
+      {/* Wordmark — top third */}
+      <div className="mb-10 text-center">
+        <h1 className="font-display text-[40px] font-light tracking-tight" style={{ color: "#FAFAF8" }}>
+          Arukai
+        </h1>
+        <p className="mt-2 font-interface text-sm" style={{ color: "rgba(250,250,248,0.55)" }}>
+          Private workflow environment
+        </p>
+      </div>
 
-        {/* Card */}
-        <div className="rounded-lg border border-border-hairline bg-bg-bone p-6 shadow-sm">
-          <h2 className="mb-6 font-interface text-base font-semibold text-fg-obsidian">
-            Sign in
-          </h2>
+      {/* Auth card — bgBone surface per spec §8.2 */}
+      <div
+        className="w-full rounded-[16px] border p-8 shadow-sm"
+        style={{
+          maxWidth: "400px",
+          backgroundColor: "#FAFAF8",
+          borderColor: "rgba(26,31,40,0.10)",
+        }}
+      >
+        <h2 className="mb-1 font-display text-xl font-light text-fg-obsidian tracking-tight">
+          Authorized access
+        </h2>
+        <p className="mb-6 font-interface text-sm text-fg-muted">
+          Governed capital-call review. Credentialed access only.
+        </p>
 
-          <form action={formAction} className="flex flex-col gap-4" noValidate>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              label="Email"
-              placeholder="you@example.com"
-              autoComplete="email"
-              required
-            />
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              label="Password"
-              placeholder="••••••••"
-              autoComplete="current-password"
-              required
-            />
+        <form action={formAction} className="flex flex-col gap-4" noValidate>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            label="Credentialed email"
+            placeholder="name@firm.example"
+            autoComplete="email"
+            required
+          />
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            label="Passphrase"
+            placeholder="••••••••"
+            autoComplete="current-password"
+            required
+          />
 
-            {state?.error && (
-              <p
-                className="rounded-md bg-[rgba(178,58,46,0.08)] px-3 py-2 font-interface text-sm text-data-negative"
-                role="alert"
-              >
-                {state.error}
-              </p>
-            )}
+          {state?.error && (
+            <p
+              className="rounded-md bg-[rgba(178,58,46,0.08)] px-3 py-2 font-interface text-sm text-data-negative"
+              role="alert"
+            >
+              Credentials not recognized. Access not granted.
+            </p>
+          )}
 
-            <Button type="submit" variant="primary" loading={isPending}>
-              Sign in
-            </Button>
-          </form>
-        </div>
+          {/* Submit: neutral dark — never brass on login (spec §8.2) */}
+          <Button type="submit" variant="primary" loading={isPending}>
+            Enter workflow
+          </Button>
+        </form>
       </div>
     </main>
   );

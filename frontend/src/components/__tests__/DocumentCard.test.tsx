@@ -1,6 +1,7 @@
 /**
- * DocumentCard component tests — POR-142 M3
- * Tests: renders props correctly, links to detail page
+ * DocumentCard component tests — POR-147 / ARU-17 Phase A
+ * Tests: renders props correctly, links to detail page.
+ * Note: StatusPill now shows v0.2 labels via state façade.
  */
 
 import React from "react";
@@ -45,9 +46,12 @@ describe("DocumentCard", () => {
     expect(screen.getByText("View →")).toBeInTheDocument();
   });
 
-  it("renders the status pill", () => {
+  it("renders a status pill for pending_review (v0.2 label: 'Intake complete')", () => {
     renderRow(baseDocument);
-    expect(screen.getByText("Pending Review")).toBeInTheDocument();
+    // pending_review + confidence 0.94 → intake_complete
+    expect(
+      screen.getByText(/intake complete · awaiting reviewer/i)
+    ).toBeInTheDocument();
   });
 
   it("renders the classification badge", () => {
@@ -57,7 +61,6 @@ describe("DocumentCard", () => {
 
   it("renders a formatted upload date", () => {
     renderRow(baseDocument);
-    // The date is formatted — check it contains 'Apr' and '2026'
     const dateText = screen.getByText(/apr.*2026/i);
     expect(dateText).toBeInTheDocument();
   });
@@ -74,15 +77,21 @@ describe("DocumentCard", () => {
     expect(screen.getByText("Unknown")).toBeInTheDocument();
   });
 
-  it("renders approved status correctly", () => {
+  it("renders approved status with v0.2 decision label", () => {
     const doc = { ...baseDocument, status: "approved" as const };
     renderRow(doc);
-    expect(screen.getByText("Approved")).toBeInTheDocument();
+    expect(screen.getByText(/approved · approver/i)).toBeInTheDocument();
   });
 
-  it("renders rejected status correctly", () => {
+  it("renders rejected status with v0.2 decision label", () => {
     const doc = { ...baseDocument, status: "rejected" as const };
     renderRow(doc);
-    expect(screen.getByText("Rejected")).toBeInTheDocument();
+    expect(screen.getByText(/rejected · approver/i)).toBeInTheDocument();
+  });
+
+  it("renders exception_surfaced for pending_review with low confidence", () => {
+    const doc = { ...baseDocument, status: "pending_review" as const, confidence: 0.3 };
+    renderRow(doc);
+    expect(screen.getByText(/exception surfaced/i)).toBeInTheDocument();
   });
 });
