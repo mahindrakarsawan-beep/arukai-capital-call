@@ -1,12 +1,17 @@
-"""FastAPI app factory — Arukai Capital Call v0.1."""
+"""FastAPI app factory — Arukai Capital Call v0.2 (POR-147 / ARU-17-B1)."""
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
-from app.routers import approvals, auth, packages
-from app.routers.approvals import audit_router
+from app.routers import approvals, auth
+from app.routers.packages import (
+    router as packages_router,
+    legacy_router as packages_legacy_router,
+    deprecation_router as approvals_deprecation_router,
+)
+from app.routers.audit import router as audit_router
 
 
 @asynccontextmanager
@@ -18,7 +23,7 @@ async def lifespan(app: FastAPI):
 
 
 async def _seed_dev_users():
-    """Create admin + reviewer seed users if they don't exist (idempotent)."""
+    """Create admin + reviewer + approver seed users if they don't exist (idempotent)."""
     from sqlalchemy import select
 
     from app.auth import hash_password
@@ -29,6 +34,7 @@ async def _seed_dev_users():
         for email, password, role in [
             ("admin@arukai.example", "admin123", "admin"),
             ("reviewer@arukai.example", "reviewer123", "reviewer"),
+            ("approver@arukai.example", "approver123", "approver"),
         ]:
             result = await db.execute(select(User).where(User.email == email))
             existing = result.scalar_one_or_none()
@@ -45,7 +51,7 @@ async def _seed_dev_users():
 def create_app() -> FastAPI:
     application = FastAPI(
         title="Arukai Capital Call API",
-        version="0.1.0",
+        version="0.2.0",
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
@@ -65,14 +71,27 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Auth
     application.include_router(auth.router)
-    application.include_router(packages.router)
-    application.include_router(approvals.router)
+
+    # Packages (new v0.2 canonical routes)
+    application.include_router(packages_router)
+
+    # Legacy /documents prefix — backward compatibility
+    application.include_router(packages_legacy_router)
+
+    # Deprecated approvals endpoint (410 bridge)
+    application.include_router(approvals_deprecation_router)
+
+    # Audit (global + per-package)
     application.include_router(audit_router)
+
+    # Keep v0.1 approvals router for any remaining imports
+    application.include_router(approvals.router)
 
     @application.get("/health")
     async def health() -> dict:
-        return {"status": "ok", "service": "capital-call"}
+        return {"status": "ok", "service": "capital-call", "version": "0.2.0"}
 
     return application
 

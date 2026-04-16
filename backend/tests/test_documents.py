@@ -51,7 +51,9 @@ def test_upload_with_reviewer_token(client: TestClient):
     data = response.json()
     assert "id" in data
     assert data["title"] == "Q2 Capital Call"
-    assert data["status"] in ("pending_classification", "pending_review")
+    # v0.2: status replaced by state
+    assert "state" in data
+    assert data["state"] in ("submitted", "intake_complete", "exception_surfaced")
 
 
 def test_upload_with_admin_token(client: TestClient):

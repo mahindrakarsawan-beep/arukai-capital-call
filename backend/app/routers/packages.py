@@ -1,19 +1,42 @@
-"""Packages router — upload, list, get, download PDF."""
+"""Packages router v0.2 — upload, list, get, download PDF, claim/release,
+transition, review notes, attest.  (POR-147 / ARU-17-B1)
+"""
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth import get_current_user
+from app.auth import get_current_user, require_role
 from app.classify import classify_document_text, extract_pdf_text
 from app.db import get_db
-from app.models import AuditEvent, Classification, Document, Package, User
+from app.models import (
+    Approval,
+    AuditEvent,
+    Classification,
+    Document,
+    Package,
+    ReviewerNote,
+    User,
+)
+from app.state_machine import (
+    DECISION_RECORDED,
+    INTAKE_COMPLETE,
+    ROUTED_FOR_APPROVAL,
+    SUBMITTED,
+    UNDER_REVIEW,
+    InvalidTransition,
+    InsufficientRole,
+    validate_transition,
+)
 
-router = APIRouter(prefix="/documents", tags=["documents"])
+router = APIRouter(prefix="/packages", tags=["packages"])
+
+# Keep the old /documents prefix alive for backward compatibility
+legacy_router = APIRouter(prefix="/documents", tags=["documents-legacy"])
 
 
 # ---------------------------------------------------------------------------
@@ -25,6 +48,8 @@ class ClassificationOut(BaseModel):
     document_type: str
     confidence: float
     key_indicators: Optional[Any] = None
+    extracted_fields: Optional[Any] = None
+    is_current: bool = True
     model_version: Optional[str] = None
     fallback: bool
     classification_error: Optional[str] = None
@@ -47,23 +72,121 @@ class DocumentOut(BaseModel):
 class PackageOut(BaseModel):
     id: str
     title: str
-    status: str
+    state: str
+    legacy_status: Optional[str] = None
     uploaded_by: str
+    version: int
+    claimed_by_user_id: Optional[str] = None
+    claimed_at: Optional[datetime] = None
+    exception_reason: Optional[str] = None
+    last_moved_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
 
 
+class ReviewNoteOut(BaseModel):
+    id: str
+    package_id: str
+    author_user_id: str
+    body: str
+    supersedes_note_id: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AuditEventOut(BaseModel):
+    id: str
+    package_id: Optional[str] = None
+    actor_user_id: Optional[str] = None
+    action: str
+    before_state: Optional[Any] = None
+    after_state: Optional[Any] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ApprovalOut(BaseModel):
+    id: str
+    package_id: str
+    decision: str
+    note: Optional[str] = None
+    is_final: bool
+    decided_at: datetime
+    decided_by: str
+
+    model_config = {"from_attributes": True}
+
+
 class PackageDetailOut(PackageOut):
     documents: list[DocumentOut] = []
+    review_notes: list[ReviewNoteOut] = []
+    audit_trail: list[AuditEventOut] = []
+    approval: Optional[ApprovalOut] = None
 
 
 # ---------------------------------------------------------------------------
-# Endpoints
+# Request schemas
+# ---------------------------------------------------------------------------
+
+class TransitionRequest(BaseModel):
+    to_state: str
+    reason: Optional[str] = None
+
+
+class ReviewNoteRequest(BaseModel):
+    body: str
+    supersedes_note_id: Optional[str] = None
+
+
+class AttestRequest(BaseModel):
+    action: str  # "approved" | "rejected"
+    note: Optional[str] = None
+
+
+class ClaimRequest(BaseModel):
+    pass  # No body needed
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_current_classification(doc: Document) -> Optional[Classification]:
+    """Return the is_current=True classification for a document, or None."""
+    for clf in doc.classifications:
+        if clf.is_current:
+            return clf
+    return None
+
+
+async def _write_audit(
+    db: AsyncSession,
+    package_id: str,
+    actor_user_id: Optional[str],
+    action: str,
+    before_state: Optional[dict] = None,
+    after_state: Optional[dict] = None,
+) -> None:
+    event = AuditEvent(
+        package_id=package_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        before_state=before_state,
+        after_state=after_state,
+    )
+    db.add(event)
+
+
+# ---------------------------------------------------------------------------
+# Upload
 # ---------------------------------------------------------------------------
 
 @router.post("/upload", status_code=201, response_model=PackageOut)
+@legacy_router.post("/upload", status_code=201, response_model=PackageOut)
 async def upload_package(
     title: str = Form(...),
     file: UploadFile = ...,
@@ -71,22 +194,23 @@ async def upload_package(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a PDF, create a package, run classification synchronously."""
-    if file.content_type not in ("application/pdf", "application/octet-stream"):
-        # Allow octet-stream for test clients that don't set mime type correctly
-        pass
-
     raw = await file.read()
     if len(raw) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # Create package
+    now = datetime.now(timezone.utc)
+
+    # Create package in SUBMITTED state
     pkg = Package(
         title=title,
         uploaded_by=current_user.id,
-        status="pending_classification",
+        state=SUBMITTED,
+        legacy_status="pending_classification",
+        version=1,
+        last_moved_at=now,
     )
     db.add(pkg)
-    await db.flush()  # get pkg.id
+    await db.flush()
 
     # Create document
     doc = Document(
@@ -97,22 +221,15 @@ async def upload_package(
         content=raw,
     )
     db.add(doc)
-    await db.flush()  # get doc.id
+    await db.flush()
 
     # Audit: upload
-    audit_upload = AuditEvent(
-        package_id=pkg.id,
-        actor_user_id=current_user.id,
-        action="upload_document",
-        after_state={
-            "package_id": pkg.id,
-            "filename": doc.filename,
-            "size_bytes": doc.size_bytes,
-        },
+    await _write_audit(
+        db, pkg.id, current_user.id, "upload_document",
+        after_state={"package_id": pkg.id, "filename": doc.filename, "size_bytes": doc.size_bytes},
     )
-    db.add(audit_upload)
 
-    # Extract text and classify
+    # Classify
     text = extract_pdf_text(raw)
     clf_result = await classify_document_text(text=text, filename=doc.filename)
 
@@ -121,21 +238,38 @@ async def upload_package(
         document_type=clf_result.document_type,
         confidence=clf_result.confidence,
         key_indicators=clf_result.key_indicators,
+        extracted_fields=clf_result.extracted_fields,
         model_version=clf_result.model_version,
         fallback=clf_result.fallback,
         classification_error=clf_result.classification_error,
+        is_current=True,
     )
     db.add(clf)
 
-    # Update package status
-    pkg.status = "pending_review"
+    # System state transition: submitted → intake_complete or exception_surfaced
+    from app.state_machine import EXCEPTION_SURFACED, INTAKE_COMPLETE  # noqa
+
+    # Treat NULL confidence as 0.0 (R12)
+    effective_confidence = clf_result.confidence if clf_result.confidence is not None else 0.0
+
+    if effective_confidence >= 0.5 and not clf_result.fallback:
+        new_state = INTAKE_COMPLETE
+        exception_reason = None
+        legacy = "pending_review"
+    else:
+        new_state = EXCEPTION_SURFACED
+        exception_reason = "low_confidence" if effective_confidence < 0.5 else "extraction_failure"
+        legacy = "pending_review"
+
+    pkg.state = new_state
+    pkg.legacy_status = legacy
+    pkg.exception_reason = exception_reason
+    pkg.last_moved_at = datetime.now(timezone.utc)
     pkg.updated_at = datetime.now(timezone.utc)
 
-    # Audit: classify
-    audit_classify = AuditEvent(
-        package_id=pkg.id,
-        actor_user_id=current_user.id,
-        action="classify_document",
+    # Audit: classify + system transition
+    await _write_audit(
+        db, pkg.id, current_user.id, "classify_document",
         after_state={
             "document_id": doc.id,
             "document_type": clf_result.document_type,
@@ -145,63 +279,68 @@ async def upload_package(
             "duration_ms": clf_result.duration_ms,
         },
     )
-    db.add(audit_classify)
+    await _write_audit(
+        db, pkg.id, None, "system_transition",
+        before_state={"state": SUBMITTED},
+        after_state={"state": new_state, "exception_reason": exception_reason},
+    )
 
     await db.commit()
     await db.refresh(pkg)
+    return pkg
 
-    return PackageOut(
-        id=pkg.id,
-        title=pkg.title,
-        status=pkg.status,
-        uploaded_by=pkg.uploaded_by,
-        created_at=pkg.created_at,
-        updated_at=pkg.updated_at,
-    )
 
+# ---------------------------------------------------------------------------
+# List packages
+# ---------------------------------------------------------------------------
 
 @router.get("", response_model=list[PackageOut])
+@legacy_router.get("", response_model=list[PackageOut])
 async def list_packages(
+    state: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List packages. Admin sees all; reviewer sees own + all pending_review."""
-    if current_user.role == "admin":
-        result = await db.execute(
-            select(Package).order_by(Package.created_at.desc())
-        )
-    else:
-        result = await db.execute(
-            select(Package).where(
-                (Package.uploaded_by == current_user.id) |
-                (Package.status == "pending_review")
-            ).order_by(Package.created_at.desc())
-        )
-    packages = result.scalars().all()
-    return [
-        PackageOut(
-            id=p.id,
-            title=p.title,
-            status=p.status,
-            uploaded_by=p.uploaded_by,
-            created_at=p.created_at,
-            updated_at=p.updated_at,
-        )
-        for p in packages
-    ]
+    """List packages with optional state filter. Role-scoped."""
+    q = select(Package)
 
+    if current_user.role == "admin":
+        # Operator: see own packages only
+        q = q.where(Package.uploaded_by == current_user.id)
+    elif current_user.role == "reviewer":
+        # Reviewer: all packages
+        pass
+    else:
+        # Approver / others: all packages
+        pass
+
+    if state:
+        q = q.where(Package.state == state)
+
+    q = q.order_by(Package.created_at.desc())
+    result = await db.execute(q)
+    return result.scalars().all()
+
+
+# ---------------------------------------------------------------------------
+# Get package detail
+# ---------------------------------------------------------------------------
 
 @router.get("/{pkg_id}", response_model=PackageDetailOut)
+@legacy_router.get("/{pkg_id}", response_model=PackageDetailOut)
 async def get_package(
     pkg_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get package detail with documents + classification."""
+    """Get package detail with documents, classifications, review notes, audit trail."""
     result = await db.execute(
         select(Package)
         .options(
-            selectinload(Package.documents).selectinload(Document.classification)
+            selectinload(Package.documents).selectinload(Document.classifications),
+            selectinload(Package.review_notes),
+            selectinload(Package.audit_events),
+            selectinload(Package.approvals),
         )
         .where(Package.id == pkg_id)
     )
@@ -211,18 +350,20 @@ async def get_package(
 
     docs_out = []
     for doc in pkg.documents:
+        clf = _get_current_classification(doc)
         clf_out = None
-        if doc.classification:
-            c = doc.classification
+        if clf:
             clf_out = ClassificationOut(
-                id=c.id,
-                document_type=c.document_type,
-                confidence=c.confidence,
-                key_indicators=c.key_indicators,
-                model_version=c.model_version,
-                fallback=c.fallback,
-                classification_error=c.classification_error,
-                created_at=c.created_at,
+                id=clf.id,
+                document_type=clf.document_type,
+                confidence=clf.confidence,
+                key_indicators=clf.key_indicators,
+                extracted_fields=clf.extracted_fields,
+                is_current=clf.is_current,
+                model_version=clf.model_version,
+                fallback=clf.fallback,
+                classification_error=clf.classification_error,
+                created_at=clf.created_at,
             )
         docs_out.append(
             DocumentOut(
@@ -235,18 +376,71 @@ async def get_package(
             )
         )
 
+    notes_out = [
+        ReviewNoteOut(
+            id=n.id,
+            package_id=n.package_id,
+            author_user_id=n.author_user_id,
+            body=n.body,
+            supersedes_note_id=n.supersedes_note_id,
+            created_at=n.created_at,
+        )
+        for n in sorted(pkg.review_notes, key=lambda n: n.created_at, reverse=True)
+    ]
+
+    audit_out = [
+        AuditEventOut(
+            id=e.id,
+            package_id=e.package_id,
+            actor_user_id=e.actor_user_id,
+            action=e.action,
+            before_state=e.before_state,
+            after_state=e.after_state,
+            created_at=e.created_at,
+        )
+        for e in sorted(pkg.audit_events, key=lambda e: e.created_at)
+    ]
+
+    # Final approval (is_final=True)
+    final_approval = next((a for a in pkg.approvals if a.is_final), None)
+    approval_out = None
+    if final_approval:
+        approval_out = ApprovalOut(
+            id=final_approval.id,
+            package_id=final_approval.package_id,
+            decision=final_approval.decision,
+            note=final_approval.note,
+            is_final=final_approval.is_final,
+            decided_at=final_approval.decided_at,
+            decided_by=final_approval.decided_by,
+        )
+
     return PackageDetailOut(
         id=pkg.id,
         title=pkg.title,
-        status=pkg.status,
+        state=pkg.state,
+        legacy_status=pkg.legacy_status,
         uploaded_by=pkg.uploaded_by,
+        version=pkg.version,
+        claimed_by_user_id=pkg.claimed_by_user_id,
+        claimed_at=pkg.claimed_at,
+        exception_reason=pkg.exception_reason,
+        last_moved_at=pkg.last_moved_at,
         created_at=pkg.created_at,
         updated_at=pkg.updated_at,
         documents=docs_out,
+        review_notes=notes_out,
+        audit_trail=audit_out,
+        approval=approval_out,
     )
 
 
+# ---------------------------------------------------------------------------
+# PDF download
+# ---------------------------------------------------------------------------
+
 @router.get("/{pkg_id}/pdf")
+@legacy_router.get("/{pkg_id}/pdf")
 async def download_pdf(
     pkg_id: str,
     current_user: User = Depends(get_current_user),
@@ -261,7 +455,6 @@ async def download_pdf(
     pkg = result.scalar_one_or_none()
     if pkg is None:
         raise HTTPException(status_code=404, detail="Package not found")
-
     if not pkg.documents:
         raise HTTPException(status_code=404, detail="No documents in package")
 
@@ -270,4 +463,385 @@ async def download_pdf(
         content=doc.content,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{doc.filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Claim
+# ---------------------------------------------------------------------------
+
+@router.post("/{pkg_id}/claim", response_model=PackageOut)
+async def claim_package(
+    pkg_id: str,
+    current_user: User = Depends(require_role("reviewer", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reviewer claims an unclaimed package. 409 if already claimed."""
+    result = await db.execute(select(Package).where(Package.id == pkg_id))
+    pkg = result.scalar_one_or_none()
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    if pkg.claimed_by_user_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Package is already claimed by user {pkg.claimed_by_user_id}",
+        )
+
+    now = datetime.now(timezone.utc)
+    new_state = UNDER_REVIEW if pkg.state == INTAKE_COMPLETE else pkg.state
+
+    # Use optimistic-lock-style update so version increments
+    stmt = (
+        update(Package)
+        .where(Package.id == pkg_id, Package.claimed_by_user_id.is_(None))
+        .values(
+            claimed_by_user_id=current_user.id,
+            claimed_at=now,
+            state=new_state,
+            version=Package.version + 1,
+            last_moved_at=now,
+            updated_at=now,
+        )
+        .returning(Package.version)
+    )
+    result2 = await db.execute(stmt)
+    new_version = result2.scalar_one_or_none()
+    if new_version is None:
+        # Another request claimed it between our SELECT and UPDATE
+        raise HTTPException(status_code=409, detail="Package is already claimed by another user")
+
+    pkg.claimed_by_user_id = current_user.id
+    pkg.claimed_at = now
+    pkg.state = new_state
+    pkg.version = new_version
+    pkg.last_moved_at = now
+    pkg.updated_at = now
+
+    await _write_audit(
+        db, pkg.id, current_user.id, "claimed_package",
+        after_state={"claimed_by_user_id": current_user.id, "state": pkg.state},
+    )
+
+    await db.commit()
+    await db.refresh(pkg)
+    return pkg
+
+
+# ---------------------------------------------------------------------------
+# Release
+# ---------------------------------------------------------------------------
+
+@router.post("/{pkg_id}/release", response_model=PackageOut)
+async def release_package(
+    pkg_id: str,
+    current_user: User = Depends(require_role("reviewer", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Release claim on a package. Validates no notes recorded (R4)."""
+    result = await db.execute(select(Package).where(Package.id == pkg_id))
+    pkg = result.scalar_one_or_none()
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    if pkg.claimed_by_user_id is None:
+        raise HTTPException(status_code=409, detail="Package is not currently claimed")
+
+    # R4: cannot release claim after notes have been recorded
+    note_count_result = await db.execute(
+        select(func.count(ReviewerNote.id)).where(ReviewerNote.package_id == pkg_id)
+    )
+    note_count = note_count_result.scalar_one()
+    if note_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot release claim after annotation — notes are recorded",
+        )
+
+    now = datetime.now(timezone.utc)
+    pkg.claimed_by_user_id = None
+    pkg.claimed_at = None
+    pkg.updated_at = now
+
+    # Transition back to intake_complete if currently under_review
+    if pkg.state == UNDER_REVIEW:
+        pkg.state = INTAKE_COMPLETE
+        pkg.last_moved_at = now
+
+    await _write_audit(
+        db, pkg.id, current_user.id, "released_claim",
+        after_state={"state": pkg.state},
+    )
+
+    await db.commit()
+    await db.refresh(pkg)
+    return pkg
+
+
+# ---------------------------------------------------------------------------
+# Transition
+# ---------------------------------------------------------------------------
+
+@router.post("/{pkg_id}/transition", response_model=PackageOut)
+async def transition_package(
+    pkg_id: str,
+    body: TransitionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """State transition endpoint. Uses optimistic locking (version column)."""
+    result = await db.execute(select(Package).where(Package.id == pkg_id))
+    pkg = result.scalar_one_or_none()
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    # Count notes for the release-claim guard (R4)
+    note_count_result = await db.execute(
+        select(func.count(ReviewerNote.id)).where(ReviewerNote.package_id == pkg_id)
+    )
+    note_count = note_count_result.scalar_one()
+
+    try:
+        validate_transition(
+            from_state=pkg.state,
+            to_state=body.to_state,
+            actor_role=current_user.role,
+            note_count=note_count,
+        )
+    except InvalidTransition as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        )
+    except InsufficientRole as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="This action is outside your workflow role.",
+        )
+
+    old_state = pkg.state
+    old_version = pkg.version
+    now = datetime.now(timezone.utc)
+
+    # Optimistic locking: UPDATE WHERE version = expected_version (R2)
+    stmt = (
+        update(Package)
+        .where(Package.id == pkg_id, Package.version == old_version)
+        .values(
+            state=body.to_state,
+            version=old_version + 1,
+            last_moved_at=now,
+            updated_at=now,
+        )
+        .returning(Package.version)
+    )
+    update_result = await db.execute(stmt)
+    new_version = update_result.scalar_one_or_none()
+
+    if new_version is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Concurrent modification — reload and retry",
+        )
+
+    # Sync in-memory object
+    pkg.state = body.to_state
+    pkg.version = new_version
+    pkg.last_moved_at = now
+    pkg.updated_at = now
+
+    await _write_audit(
+        db, pkg.id, current_user.id, "transitioned_package",
+        before_state={"state": old_state},
+        after_state={"state": body.to_state, "reason": body.reason},
+    )
+
+    await db.commit()
+    await db.refresh(pkg)
+    return pkg
+
+
+# ---------------------------------------------------------------------------
+# Review notes
+# ---------------------------------------------------------------------------
+
+@router.post("/{pkg_id}/review-notes", status_code=201, response_model=ReviewNoteOut)
+async def create_review_note(
+    pkg_id: str,
+    body: ReviewNoteRequest,
+    current_user: User = Depends(require_role("reviewer", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Append a reviewer note. Append-only — no PATCH/DELETE. Role: reviewer or admin."""
+    if not body.body or not body.body.strip():
+        raise HTTPException(status_code=422, detail="Note body must not be empty")
+
+    result = await db.execute(select(Package).where(Package.id == pkg_id))
+    pkg = result.scalar_one_or_none()
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    # Validate supersedes_note_id if provided
+    if body.supersedes_note_id:
+        sup_result = await db.execute(
+            select(ReviewerNote).where(
+                ReviewerNote.id == body.supersedes_note_id,
+                ReviewerNote.package_id == pkg_id,
+            )
+        )
+        if sup_result.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="Superseded note not found in this package")
+
+    note = ReviewerNote(
+        package_id=pkg_id,
+        author_user_id=current_user.id,
+        body=body.body.strip(),
+        supersedes_note_id=body.supersedes_note_id,
+    )
+    db.add(note)
+    await db.flush()
+
+    await _write_audit(
+        db, pkg_id, current_user.id, "recorded_review_note",
+        after_state={
+            "review_note_id": note.id,
+            "body_excerpt": note.body[:80],
+            "supersedes_note_id": note.supersedes_note_id,
+        },
+    )
+
+    await db.commit()
+    await db.refresh(note)
+    return note
+
+
+@router.get("/{pkg_id}/review-notes", response_model=list[ReviewNoteOut])
+async def list_review_notes(
+    pkg_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List review notes for a package (newest first). Role: any authenticated."""
+    result = await db.execute(
+        select(ReviewerNote)
+        .where(ReviewerNote.package_id == pkg_id)
+        .order_by(ReviewerNote.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+# ---------------------------------------------------------------------------
+# Attest (approve or reject)
+# ---------------------------------------------------------------------------
+
+@router.post("/{pkg_id}/attest", response_model=ApprovalOut)
+async def attest_package(
+    pkg_id: str,
+    body: AttestRequest,
+    current_user: User = Depends(require_role("approver")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Approver attests a decision atomically. State must be routed_for_approval.
+    Rejection from exception_surfaced is also accepted per spec §2.2.
+    """
+    if body.action not in ("approved", "rejected"):
+        raise HTTPException(status_code=422, detail="action must be 'approved' or 'rejected'")
+
+    if body.action == "rejected" and (not body.note or not body.note.strip()):
+        raise HTTPException(
+            status_code=422,
+            detail="Attestation note required on rejection",
+        )
+
+    result = await db.execute(select(Package).where(Package.id == pkg_id))
+    pkg = result.scalar_one_or_none()
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    # Valid from-states for attestation
+    if pkg.state not in (ROUTED_FOR_APPROVAL, "exception_surfaced"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Transition {pkg.state}→{DECISION_RECORDED} not permitted from state {pkg.state}"
+            ),
+        )
+
+    old_state = pkg.state
+    old_version = pkg.version
+    now = datetime.now(timezone.utc)
+
+    # Mark any existing non-final approvals as non-final
+    await db.execute(
+        update(Approval)
+        .where(Approval.package_id == pkg_id, Approval.is_final == True)  # noqa: E712
+        .values(is_final=False)
+    )
+
+    # Create new final approval
+    approval = Approval(
+        package_id=pkg_id,
+        decided_by=current_user.id,
+        decision=body.action,
+        note=body.note,
+        is_final=True,
+        decided_at=now,
+    )
+    db.add(approval)
+    await db.flush()
+
+    # Optimistic lock transition to decision_recorded
+    stmt = (
+        update(Package)
+        .where(Package.id == pkg_id, Package.version == old_version)
+        .values(
+            state=DECISION_RECORDED,
+            version=old_version + 1,
+            last_moved_at=now,
+            updated_at=now,
+        )
+        .returning(Package.version)
+    )
+    update_result = await db.execute(stmt)
+    new_version = update_result.scalar_one_or_none()
+
+    if new_version is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Concurrent modification — reload and retry",
+        )
+
+    pkg.state = DECISION_RECORDED
+    pkg.version = new_version
+
+    action_name = "attested_decision" if body.action == "approved" else "attested_decision"
+    await _write_audit(
+        db, pkg_id, current_user.id, action_name,
+        before_state={"state": old_state},
+        after_state={
+            "state": DECISION_RECORDED,
+            "decision": body.action,
+            "decided_by": current_user.id,
+            "note_present": bool(body.note),
+        },
+    )
+
+    await db.commit()
+    await db.refresh(approval)
+    return approval
+
+
+# ---------------------------------------------------------------------------
+# Deprecation bridge: POST /approvals/{pkg_id} → 410 Gone
+# ---------------------------------------------------------------------------
+
+deprecation_router = APIRouter(prefix="/approvals", tags=["approvals-deprecated"])
+
+
+@deprecation_router.post("/{pkg_id}")
+async def approvals_deprecated(pkg_id: str):
+    """Deprecated. Use POST /packages/{id}/attest instead."""
+    raise HTTPException(
+        status_code=410,
+        detail="This endpoint is deprecated. Use POST /packages/{id}/attest instead.",
     )

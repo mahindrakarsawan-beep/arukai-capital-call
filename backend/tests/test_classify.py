@@ -1,4 +1,4 @@
-"""TDD: Classification pipeline tests — mock Anthropic, happy path, fallback."""
+"""TDD: Classification pipeline tests v0.2 — mock Anthropic tool_use, fallback."""
 import io
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,24 +9,48 @@ from fastapi.testclient import TestClient
 from app.classify import classify_document_text, ClassificationResult
 
 
+def _make_tool_use_block(name: str, input_data: dict):
+    """Create a mock tool_use content block."""
+    block = MagicMock()
+    block.type = "tool_use"
+    block.name = name
+    block.input = input_data
+    return block
+
+
+def _make_message(blocks: list):
+    msg = MagicMock()
+    msg.content = blocks
+    return msg
+
+
 # ---------------------------------------------------------------------------
 # Unit tests for classify_document_text()
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_classify_happy_path():
-    """Haiku returns valid JSON → classification result populated."""
-    mock_response_text = json.dumps({
+    """Tool_use returns valid result → classification populated."""
+    clf_block = _make_tool_use_block("classify_document", {
         "document_type": "capital_call_notice",
         "confidence": 0.94,
-        "key_indicators": ["capital call", "Q2 2026", "fund manager"],
+        "key_indicators": ["capital call", "Q2 2026"],
+    })
+    extract_block = _make_tool_use_block("extract_capital_call_fields", {
+        "fund_name": {"value": "Fund III", "confidence": 0.95, "source_text": "Fund III"},
+        "call_number": {"value": "Q2-2026", "confidence": 0.88, "source_text": "Q2-2026"},
+        "amount_due": {"value": None, "confidence": 0.0, "source_text": None},
+        "currency": {"value": "USD", "confidence": 0.99, "source_text": "USD"},
+        "due_date": {"value": None, "confidence": 0.0, "source_text": None},
+        "recipient_entity": {"value": None, "confidence": 0.0, "source_text": None},
+        "wire_instructions_present": {"value": False, "confidence": 0.7, "source_text": None},
+        "notice_date": {"value": None, "confidence": 0.0, "source_text": None},
     })
 
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text=mock_response_text)]
+    mock_msg = _make_message([clf_block, extract_block])
 
     with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_message)
+        mock_client.messages.create = AsyncMock(return_value=mock_msg)
 
         result = await classify_document_text(
             text="Capital Call Notice Q2 2026 from Meridian Fund III",
@@ -58,12 +82,12 @@ async def test_classify_fallback_on_api_error():
 
 @pytest.mark.asyncio
 async def test_classify_fallback_on_invalid_json():
-    """If Haiku returns non-JSON, fallback fires."""
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text="Sorry, I cannot classify this.")]
+    """If tool_use returns no classify_document block, fallback fires."""
+    # Return a message with no tool_use blocks
+    mock_msg = _make_message([])
 
     with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_message)
+        mock_client.messages.create = AsyncMock(return_value=mock_msg)
 
         result = await classify_document_text(
             text="Some document text",
@@ -80,24 +104,21 @@ async def test_classify_fallback_on_invalid_json():
 @pytest.mark.asyncio
 async def test_classify_low_confidence_uses_heuristic():
     """Low confidence (<0.5) triggers heuristic fallback."""
-    mock_response_text = json.dumps({
+    clf_block = _make_tool_use_block("classify_document", {
         "document_type": "other",
         "confidence": 0.3,
         "key_indicators": [],
     })
-
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text=mock_response_text)]
+    mock_msg = _make_message([clf_block])
 
     with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_message)
+        mock_client.messages.create = AsyncMock(return_value=mock_msg)
 
         result = await classify_document_text(
             text="capital call notice fund investment",
             filename="capital_call_q2.pdf",
         )
 
-    # Should still return a result, fallback=True since confidence < 0.5
     assert result is not None
     assert result.fallback is True
 
@@ -105,17 +126,15 @@ async def test_classify_low_confidence_uses_heuristic():
 @pytest.mark.asyncio
 async def test_classify_subscription_document():
     """Correctly identifies subscription agreement."""
-    mock_response_text = json.dumps({
+    clf_block = _make_tool_use_block("classify_document", {
         "document_type": "subscription_agreement",
         "confidence": 0.88,
         "key_indicators": ["subscription", "investor", "limited partnership"],
     })
-
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text=mock_response_text)]
+    mock_msg = _make_message([clf_block])
 
     with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_message)
+        mock_client.messages.create = AsyncMock(return_value=mock_msg)
 
         result = await classify_document_text(
             text="Subscription Agreement for Meridian Fund III LP",
@@ -124,6 +143,8 @@ async def test_classify_subscription_document():
 
     assert result.document_type == "subscription_agreement"
     assert result.confidence > 0.5
+    # Non-capital_call_notice types don't get extracted_fields
+    assert result.extracted_fields is None
 
 
 # ---------------------------------------------------------------------------
@@ -151,18 +172,28 @@ def _make_pdf_bytes() -> bytes:
 
 
 def test_upload_stores_classification(client: TestClient):
-    """After upload, classification is attached to the package (may be fallback if no API key)."""
+    """After upload, classification is attached to the package."""
     token = _login(client, "admin@arukai.example", "admin123")
-    mock_response_text = json.dumps({
+
+    clf_block = _make_tool_use_block("classify_document", {
         "document_type": "capital_call_notice",
         "confidence": 0.91,
         "key_indicators": ["capital call"],
     })
-    mock_message = MagicMock()
-    mock_message.content = [MagicMock(text=mock_response_text)]
+    extract_block = _make_tool_use_block("extract_capital_call_fields", {
+        "fund_name": {"value": "Fund X", "confidence": 0.9, "source_text": "Fund X"},
+        "call_number": {"value": "Q1", "confidence": 0.8, "source_text": "Q1"},
+        "amount_due": {"value": None, "confidence": 0.0, "source_text": None},
+        "currency": {"value": "USD", "confidence": 1.0, "source_text": "USD"},
+        "due_date": {"value": None, "confidence": 0.0, "source_text": None},
+        "recipient_entity": {"value": None, "confidence": 0.0, "source_text": None},
+        "wire_instructions_present": {"value": False, "confidence": 0.7, "source_text": None},
+        "notice_date": {"value": None, "confidence": 0.0, "source_text": None},
+    })
+    mock_msg = _make_message([clf_block, extract_block])
 
     with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_message)
+        mock_client.messages.create = AsyncMock(return_value=mock_msg)
 
         pdf = io.BytesIO(_make_pdf_bytes())
         resp = client.post(
@@ -180,7 +211,6 @@ def test_upload_stores_classification(client: TestClient):
     detail_data = detail.json()
     docs = detail_data.get("documents", [])
     assert len(docs) > 0
-    # Classification should be attached to the document
     doc = docs[0]
     assert "classification" in doc
     clf = doc["classification"]

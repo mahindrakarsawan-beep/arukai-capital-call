@@ -1,4 +1,4 @@
-"""Seed script — creates dev admin + reviewer users.
+"""Seed script v0.2 — creates dev users including approver role.
 
 Usage:
     cd backend
@@ -26,6 +26,7 @@ async def seed():
     seed_users = [
         ("admin@arukai.example", "admin123", "admin"),
         ("reviewer@arukai.example", "reviewer123", "reviewer"),
+        ("approver@arukai.example", "approver123", "approver"),  # S2: new approver role
     ]
 
     async with AsyncSessionLocal() as db:
