@@ -3,21 +3,10 @@ import Link from "next/link";
 import type { DocumentSummary } from "@/lib/api";
 import { ClassificationBadge } from "./ClassificationBadge";
 import { StatusPill } from "./StatusPill";
+import { formatDate } from "@/lib/format";
 
 interface DocumentCardProps {
   document: DocumentSummary;
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return iso;
-  }
 }
 
 /**

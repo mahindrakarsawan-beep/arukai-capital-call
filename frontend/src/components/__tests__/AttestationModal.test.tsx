@@ -172,6 +172,144 @@ describe("AttestationModal — reject variant", () => {
   });
 });
 
+describe("AttestationModal — flagged-field warning panel (A2.1)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("does NOT show warning panel when flaggedFieldCount is 0", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 0,
+        flaggedFields: [],
+      },
+    });
+    expect(screen.queryByTestId("flagged-field-warning")).not.toBeInTheDocument();
+  });
+
+  it("does NOT show warning panel when flaggedFieldCount is omitted", () => {
+    renderApproveModal();
+    expect(screen.queryByTestId("flagged-field-warning")).not.toBeInTheDocument();
+  });
+
+  it("shows warning panel when flaggedFieldCount > 0", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 1,
+        flaggedFields: ["Due date"],
+      },
+    });
+    expect(screen.getByTestId("flagged-field-warning")).toBeInTheDocument();
+  });
+
+  it("shows correct copy for 1 flagged field", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 1,
+        flaggedFields: ["Due date"],
+      },
+    });
+    expect(
+      screen.getByText(/1 field flagged during review\. proceed only if resolved\./i)
+    ).toBeInTheDocument();
+  });
+
+  it("shows plural copy for multiple flagged fields", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 3,
+        flaggedFields: ["Due date", "Side-letter ref", "Fund name"],
+      },
+    });
+    expect(
+      screen.getByText(/3 fields flagged during review\. proceed only if resolved\./i)
+    ).toBeInTheDocument();
+  });
+
+  it("renders bullet list of flagged field names", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 2,
+        flaggedFields: ["Due date", "Side-letter ref"],
+      },
+    });
+    expect(screen.getByText("Due date")).toBeInTheDocument();
+    expect(screen.getByText("Side-letter ref")).toBeInTheDocument();
+  });
+
+  it("shows warning panel in reject variant when fields are flagged", () => {
+    renderRejectModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 2,
+        flaggedFields: ["Due date", "Fund name"],
+      },
+    });
+    expect(screen.getByTestId("flagged-field-warning")).toBeInTheDocument();
+  });
+
+  it("warning panel has role=alert", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 1,
+        flaggedFields: ["Due date"],
+      },
+    });
+    // There may be multiple alerts (error strip is also role=alert)
+    const alerts = screen.getAllByRole("alert");
+    const warningPanel = alerts.find(
+      (el) => el.getAttribute("data-testid") === "flagged-field-warning"
+    );
+    expect(warningPanel).toBeTruthy();
+  });
+
+  it("does NOT use brass color (#B8914E) in the warning panel", () => {
+    const { container } = render(
+      <AttestationModal
+        variant="approve"
+        packageSummary={{
+          ...mockPackageSummary,
+          flaggedFieldCount: 1,
+          flaggedFields: ["Due date"],
+        }}
+        documentId="doc-123"
+        onClose={jest.fn()}
+        onSuccess={jest.fn()}
+      />
+    );
+    const warningEl = container.querySelector('[data-testid="flagged-field-warning"]');
+    expect(warningEl).toBeTruthy();
+    // Warning uses amber (#9A7639), not brass (#B8914E)
+    // jsdom converts hex → rgb in inline styles; check computed style instead
+    const allElements = warningEl!.querySelectorAll("*");
+    const elementList = [warningEl!, ...Array.from(allElements)];
+    const hasAmberColor = elementList.some((el) => {
+      const style = (el as HTMLElement).style;
+      // rgb(154, 118, 57) is #9A7639 in jsdom
+      return (
+        style.color === "rgb(154, 118, 57)" ||
+        style.backgroundColor === "rgb(154, 118, 57)"
+      );
+    });
+    expect(hasAmberColor).toBe(true);
+    // No element should use brass #B8914E = rgb(184, 145, 78)
+    const hasBrass = elementList.some((el) => {
+      const style = (el as HTMLElement).style;
+      return (
+        style.color === "rgb(184, 145, 78)" ||
+        style.backgroundColor === "rgb(184, 145, 78)"
+      );
+    });
+    expect(hasBrass).toBe(false);
+  });
+});
+
 describe("AttestationModal — brass discipline", () => {
   it("Attest approval confirm button has brass background", () => {
     renderApproveModal();

@@ -13,13 +13,14 @@ import React from "react";
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { getToken } from "@/lib/auth";
-import { getDocument, getDocumentDownloadUrl, getMe } from "@/lib/api";
+import { getDocument, getMe } from "@/lib/api";
 import { ClassificationBadge } from "@/components/ClassificationBadge";
 import { StatusPill } from "@/components/StatusPill";
 import { NextOwnerChip } from "@/components/NextOwnerChip";
 import { TopNav } from "@/components/TopNav";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { PackageDetailActions } from "./PackageDetailActions";
+import { SourceViewer } from "@/components/SourceViewer";
 import { resolvePackageState } from "@/lib/state";
 import type { DocumentDetail, User } from "@/lib/api";
 
@@ -135,37 +136,13 @@ export default async function DocumentDetailPage({ params }: Props) {
             <h2 className="mb-3 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
               Source document
             </h2>
-            {/* Phase A acceptable fallback: iframe embed */}
-            <iframe
-              src={getDocumentDownloadUrl(doc.id)}
-              title={`Source PDF: ${doc.filename}`}
-              className="w-full rounded border border-border-hairline"
-              style={{ height: "600px" }}
+            {/* A3: blob-URL auth fix — SourceViewer fetches PDF with Authorization header */}
+            <SourceViewer
+              documentId={doc.id}
+              filename={doc.filename}
+              sizeBytes={0}
+              uploadedAt={doc.uploaded_at ?? ""}
             />
-            <div className="mt-3 pt-3 border-t border-border-hairline">
-              <a
-                href={getDocumentDownloadUrl(doc.id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 font-interface text-sm text-fg-slate hover:text-fg-obsidian transition-colors duration-fast"
-              >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-                  />
-                </svg>
-                View source document
-              </a>
-            </div>
           </div>
 
           {/* Block 2: Extracted facts */}

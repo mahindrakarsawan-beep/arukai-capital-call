@@ -2,7 +2,7 @@
 
 import React from "react";
 
-type Variant = "primary" | "secondary" | "danger" | "brass";
+type Variant = "primary" | "secondary" | "danger" | "brass" | "ghost";
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
@@ -20,6 +20,9 @@ const variantClasses: Record<Variant, string> = {
   // brass — signal-only: admin-approval CTAs only (per brand rules)
   brass:
     "bg-brand-brass text-white hover:bg-brand-brass-pressed focus-visible:ring-brand-brass",
+  // ghost — borderless, muted text, hover ink; used for "Return to package" links etc.
+  ghost:
+    "bg-transparent text-fg-slate hover:text-fg-obsidian focus-visible:ring-fg-slate",
 };
 
 /**

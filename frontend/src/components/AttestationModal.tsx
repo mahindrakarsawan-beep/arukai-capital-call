@@ -9,6 +9,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
+import { FlaggedFieldWarning } from "@/components/FlaggedFieldWarning";
 
 interface PackageSummary {
   title: string;
@@ -18,6 +19,10 @@ interface PackageSummary {
   dueDate?: string | null;
   fundName?: string | null;
   reviewerNotes?: Array<{ author: string; timestamp: string; body: string }>;
+  /** Number of fields flagged during extraction review (A2.1). Defaults to 0. */
+  flaggedFieldCount?: number;
+  /** Names of the flagged fields (A2.1). */
+  flaggedFields?: string[];
 }
 
 interface AttestationModalProps {
@@ -215,6 +220,12 @@ export function AttestationModal({
             </div>
           )}
         </div>
+
+        {/* Flagged-field warning panel (A2.1) — amber, shown only when count > 0 */}
+        <FlaggedFieldWarning
+          flaggedCount={packageSummary.flaggedFieldCount ?? 0}
+          flaggedFields={packageSummary.flaggedFields ?? []}
+        />
 
         {/* Reviewer notes recap */}
         <div className="mb-5">

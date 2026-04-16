@@ -1,6 +1,13 @@
 /**
  * Operations console — /documents (spec §5)
- * Five sections in order: Exceptions · Pending approval · Needs review · Active packages · Recent decisions
+ * Five sections in strict order: Exceptions · Pending approval · Needs review · Active packages · Recent decisions
+ *
+ * Per Holden's Figma synthesis (A1):
+ *  - Each section: heading + count + max 5 rows + "Show all N" expander when count > 5
+ *  - Empty states per section with Arukai-language copy
+ *  - "Begin intake" primary button in Active packages section header
+ *  - Responsive: desktop (lg:) / tablet (md:) / mobile (default)
+ *
  * Server component: fetches /documents using JWT from cookie.
  */
 
@@ -12,65 +19,26 @@ import { getMe, listDocuments } from "@/lib/api";
 import { TopNav } from "@/components/TopNav";
 import { StaleBanner } from "@/components/StaleBanner";
 import { Button } from "@/components/Button";
-import { StatusPill } from "@/components/StatusPill";
-import { NextOwnerChip } from "@/components/NextOwnerChip";
-import { ClassificationBadge } from "@/components/ClassificationBadge";
+import { PackageRow } from "@/components/PackageRow";
 import { resolvePackageState } from "@/lib/state";
 import type { DocumentSummary, User } from "@/lib/api";
+import type { PackageRowPkg } from "@/components/PackageRow";
 
-function formatRelative(iso: string): string {
-  try {
-    const diff = Date.now() - new Date(iso).getTime();
-    const h = Math.floor(diff / 3600000);
-    if (h < 1) return "just now";
-    if (h < 24) return `${h}h ago`;
-    const d = Math.floor(h / 24);
-    if (d < 30) return `${d}d ago`;
-    return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  } catch {
-    return iso;
-  }
+/** Convert a DocumentSummary to the PackageRowPkg shape. */
+function toRowPkg(doc: DocumentSummary): PackageRowPkg {
+  return {
+    id: doc.id,
+    title: doc.filename,
+    state: doc.status,
+    confidence: doc.confidence,
+    docType: doc.doc_type,
+    lastMovement: doc.uploaded_at,
+    // claimStatus: Phase B — Drummer will add claimed_by_user_id; default unclaimed here
+    claimStatus: null,
+  };
 }
 
-interface ConsoleRowProps {
-  doc: DocumentSummary;
-}
-
-function ConsoleRow({ doc }: ConsoleRowProps) {
-  const stateInfo = resolvePackageState(doc.status, doc.confidence);
-
-  return (
-    <Link
-      href={`/documents/${doc.id}`}
-      className="flex items-center gap-4 px-4 py-3 border-b border-border-hairline last:border-0 hover:bg-bg-parchment transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg-slate"
-      aria-label={`Open package ${doc.filename}`}
-    >
-      {/* Package reference — Cormorant */}
-      <span className="flex-1 min-w-0 font-display text-base font-normal text-fg-obsidian truncate">
-        {doc.filename}
-      </span>
-
-      {/* Classification */}
-      <span className="hidden md:block">
-        <ClassificationBadge docType={doc.doc_type} />
-      </span>
-
-      {/* State pill + next-owner chip */}
-      <span className="flex items-center gap-2 flex-shrink-0">
-        <StatusPill status={doc.status} confidence={doc.confidence} />
-        <NextOwnerChip stateInfo={stateInfo} />
-      </span>
-
-      {/* Last movement */}
-      <span
-        className="hidden lg:block font-interface text-xs text-fg-muted tabular-nums flex-shrink-0"
-        title={doc.uploaded_at}
-      >
-        {doc.uploaded_at ? formatRelative(doc.uploaded_at) : "—"}
-      </span>
-    </Link>
-  );
-}
+const MAX_VISIBLE = 5;
 
 interface SectionProps {
   title: string;
@@ -79,14 +47,44 @@ interface SectionProps {
   emptyState: string;
   docs: DocumentSummary[];
   action?: React.ReactNode;
+  /** If true, sticky section header on mobile */
+  stickyHeader?: boolean;
 }
 
-function ConsoleSection({ title, count, useBrassCount, emptyState, docs, action }: SectionProps) {
+/**
+ * ConsoleSection — renders a titled section with rows, cap at MAX_VISIBLE.
+ * "Show all N" link appears when count > MAX_VISIBLE.
+ *
+ * Responsive:
+ *  - Mobile: section header is sticky (stickyHeader=true on first section)
+ *  - All sizes: same 5-section structure, tighter padding at md
+ */
+function ConsoleSection({
+  title,
+  count,
+  useBrassCount,
+  emptyState,
+  docs,
+  action,
+  stickyHeader,
+}: SectionProps) {
+  const visible = docs.slice(0, MAX_VISIBLE);
+  const hasMore = count > MAX_VISIBLE;
+
   return (
-    <section className="mb-8">
-      {/* Section header */}
-      <div className="flex items-center gap-3 mb-3">
-        <h2 className="font-display text-xl font-light text-fg-obsidian tracking-tight">
+    <section className="mb-6 md:mb-8">
+      {/* Section header — sticky on mobile for long lists */}
+      <div
+        className={[
+          "flex items-center gap-3 mb-3 bg-bg-bone",
+          stickyHeader
+            ? "sticky top-[53px] z-[5] py-2 -mx-4 px-4 border-b border-border-hairline md:static md:border-none md:mx-0 md:px-0 md:py-0"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <h2 className="font-display text-lg md:text-xl font-light text-fg-obsidian tracking-tight">
           {title}
         </h2>
         <span
@@ -103,14 +101,29 @@ function ConsoleSection({ title, count, useBrassCount, emptyState, docs, action 
         {action && <span className="flex-shrink-0">{action}</span>}
       </div>
 
-      {/* Rows */}
+      {/* Row container */}
       <div className="rounded-lg border border-border-hairline bg-bg-bone overflow-hidden">
         {docs.length === 0 ? (
           <p className="px-4 py-4 font-interface text-sm text-fg-muted italic">
             {emptyState}
           </p>
         ) : (
-          docs.map((doc) => <ConsoleRow key={doc.id} doc={doc} />)
+          <>
+            {visible.map((doc) => (
+              <PackageRow key={doc.id} pkg={toRowPkg(doc)} />
+            ))}
+            {/* "Show all N" expander — appears when section has more than MAX_VISIBLE items */}
+            {hasMore && (
+              <div className="px-4 py-2 border-t border-border-hairline bg-bg-parchment">
+                <Link
+                  href={`/documents?filter=${encodeURIComponent(title.toLowerCase().replace(/\s+/g, "_"))}`}
+                  className="font-interface text-xs text-fg-slate hover:text-fg-obsidian transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-slate rounded"
+                >
+                  Show all {count} →
+                </Link>
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>
@@ -138,54 +151,60 @@ export default async function DocumentsPage() {
       err instanceof Error ? err.message : "Failed to load packages.";
   }
 
-  // Partition into sections using state façade
-  const exceptions = documents.filter((d) => {
-    const info = resolvePackageState(d.status, d.confidence);
-    return info.uiState === "exception_surfaced";
-  });
+  // ─── Single-pass partition into sections ────────────────────────────────
+  // Resolve state once per document, then bucket — avoids 5× resolvePackageState calls per doc.
+  // Strict section order per spec §5.1:
+  //   1. Exceptions  2. Pending approval  3. Needs review  4. Active packages  5. Recent decisions
 
-  const pendingApproval = documents.filter((d) => {
-    // Phase A: pending_review with confidence ≥ 0.5 is "intake_complete" (awaiting reviewer).
-    // There is no v0.1 state that maps to routed_for_approval — section will be empty until Phase B.
-    const info = resolvePackageState(d.status, d.confidence);
-    return info.uiState === "routed_for_approval";
-  });
+  const exceptions: DocumentSummary[] = [];
+  const pendingApproval: DocumentSummary[] = [];
+  const needsReview: DocumentSummary[] = [];
+  const activePackages: DocumentSummary[] = [];
+  const recentDecisions: DocumentSummary[] = [];
 
-  const needsReview = documents.filter((d) => {
-    const info = resolvePackageState(d.status, d.confidence);
-    return info.uiState === "intake_complete" || info.uiState === "under_review";
-  });
+  for (const d of documents) {
+    const { uiState } = resolvePackageState(d.status, d.confidence);
+    const isDecided =
+      uiState === "decision_recorded_approved" || uiState === "decision_recorded_rejected";
 
-  const activePackages = documents.filter((d) => {
-    const info = resolvePackageState(d.status, d.confidence);
-    return (
-      info.uiState !== "decision_recorded_approved" &&
-      info.uiState !== "decision_recorded_rejected"
-    );
-  });
+    if (!isDecided) activePackages.push(d);
 
-  const recentDecisions = documents.filter((d) => {
-    const info = resolvePackageState(d.status, d.confidence);
-    return (
-      info.uiState === "decision_recorded_approved" ||
-      info.uiState === "decision_recorded_rejected"
-    );
-  });
+    if (uiState === "exception_surfaced") {
+      exceptions.push(d);
+    } else if (uiState === "routed_for_approval") {
+      pendingApproval.push(d);
+    } else if (
+      uiState === "intake_complete" ||
+      uiState === "under_review" ||
+      uiState === "unclaimed"
+    ) {
+      needsReview.push(d);
+    } else if (isDecided) {
+      recentDecisions.push(d);
+    }
+  }
 
   const activeCount = activePackages.length;
+  const pendingAttestationCount = pendingApproval.length;
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <TopNav user={user} />
+    <div className="flex min-h-screen flex-col bg-bg-bone">
+      <TopNav user={user} pendingAttestationCount={pendingAttestationCount} />
 
       {fetchError && (
         <StaleBanner message="Workflow state could not be refreshed. The information shown may be stale." />
       )}
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
+      {/*
+        Main content:
+          Mobile (default):    px-4, single-column, full width
+          Tablet (md: 768px):  tighter max-width, same single-column sections
+          Desktop (lg: 1280px): max-w-6xl centred, same 5-section layout
+      */}
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:py-8">
         {/* Page header */}
-        <div className="mb-8">
-          <h1 className="font-display text-2xl font-light text-fg-obsidian tracking-tight">
+        <div className="mb-6 md:mb-8">
+          <h1 className="font-display text-xl md:text-2xl font-light text-fg-obsidian tracking-tight">
             Operations console
           </h1>
           <p className="mt-0.5 font-interface text-sm text-fg-muted">
@@ -195,12 +214,13 @@ export default async function DocumentsPage() {
           </p>
         </div>
 
-        {/* Section 1: Exceptions */}
+        {/* Section 1: Exceptions — sticky header on mobile (top of list) */}
         <ConsoleSection
           title="Exceptions"
           count={exceptions.length}
           emptyState="No exceptions surfaced. All packages within confidence thresholds."
           docs={exceptions}
+          stickyHeader
         />
 
         {/* Section 2: Pending approval — brass count when > 0 */}
@@ -220,7 +240,7 @@ export default async function DocumentsPage() {
           docs={needsReview}
         />
 
-        {/* Section 4: Active packages */}
+        {/* Section 4: Active packages — "Begin intake" CTA in header */}
         <ConsoleSection
           title="Active packages"
           count={activeCount}
@@ -228,7 +248,9 @@ export default async function DocumentsPage() {
           docs={activePackages}
           action={
             <Link href="/documents/upload">
-              <Button variant="primary">Begin intake</Button>
+              <Button variant="primary" className="text-xs px-3 py-1.5">
+                Begin intake
+              </Button>
             </Link>
           }
         />
@@ -241,6 +263,20 @@ export default async function DocumentsPage() {
           docs={recentDecisions}
         />
       </main>
+
+      {/*
+        Mobile sticky bottom CTA — "Begin intake" pinned to viewport bottom on xs screens.
+        Hidden from md upwards (button is in Active packages header instead).
+      */}
+      <div className="md:hidden fixed bottom-0 inset-x-0 z-20 p-4 bg-bg-bone border-t border-border-hairline">
+        <Link href="/documents/upload" className="block w-full">
+          <Button variant="primary" className="w-full justify-center">
+            Begin intake
+          </Button>
+        </Link>
+      </div>
+      {/* Spacer so content isn't hidden under the sticky CTA on mobile */}
+      <div className="md:hidden h-20" aria-hidden="true" />
     </div>
   );
 }
