@@ -25,6 +25,9 @@ target_metadata = Base.metadata
 
 # Read DATABASE_URL from environment (same as app/db.py)
 _db_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
+# Strip sslmode query param — asyncpg rejects it; SSL handled via connect_args
+if "?sslmode=" in _db_url:
+    _db_url = _db_url.split("?sslmode=")[0]
 # Normalize postgres:// → postgresql+asyncpg://
 if _db_url.startswith("postgresql://"):
     _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
@@ -63,11 +66,17 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Run migrations in async online mode."""
+    import ssl
     from sqlalchemy.ext.asyncio import create_async_engine
+
+    connect_args = {}
+    if "postgresql+asyncpg://" in _db_url:
+        connect_args["ssl"] = ssl.create_default_context()
 
     connectable = create_async_engine(
         _db_url,
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

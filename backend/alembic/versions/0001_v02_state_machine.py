@@ -245,15 +245,26 @@ def upgrade() -> None:
     # -----------------------------------------------------------------------
     # 7. Classifications: remove unique constraint on document_id, add is_current
     # -----------------------------------------------------------------------
-    with op.batch_alter_table("classifications") as batch_op:
-        # Drop the unique constraint (R7)
-        # In SQLite batch mode, we recreate the table without the constraint
-        try:
-            batch_op.drop_constraint("uq_classifications_document_id", type_="unique")
-        except Exception:
-            # Constraint name may differ — batch mode handles it via table recreation
-            pass
+    # Drop unique constraint first (outside batch) — Postgres-specific; SQLite batch handles via recreate
+    if is_pg:
+        # Find and drop any unique constraint on document_id (name may vary)
+        bind.execute(text("""
+            DO $$
+            DECLARE
+                con_name text;
+            BEGIN
+                SELECT conname INTO con_name FROM pg_constraint
+                WHERE conrelid = 'classifications'::regclass
+                  AND contype = 'u'
+                  AND array_length(conkey, 1) = 1
+                  AND conkey[1] = (SELECT attnum FROM pg_attribute WHERE attrelid = 'classifications'::regclass AND attname = 'document_id');
+                IF con_name IS NOT NULL THEN
+                    EXECUTE format('ALTER TABLE classifications DROP CONSTRAINT %I', con_name);
+                END IF;
+            END $$;
+        """))
 
+    with op.batch_alter_table("classifications") as batch_op:
         # Add is_current flag
         batch_op.add_column(
             sa.Column("is_current", sa.Boolean, nullable=True, default=True)
@@ -264,7 +275,10 @@ def upgrade() -> None:
         )
 
     # Backfill is_current = True for all existing rows (only one row per doc anyway)
-    bind.execute(text("UPDATE classifications SET is_current = 1 WHERE is_current IS NULL"))
+    if is_pg:
+        bind.execute(text("UPDATE classifications SET is_current = TRUE WHERE is_current IS NULL"))
+    else:
+        bind.execute(text("UPDATE classifications SET is_current = 1 WHERE is_current IS NULL"))
 
     with op.batch_alter_table("classifications") as batch_op:
         batch_op.alter_column("is_current", nullable=False, server_default="1")
@@ -272,17 +286,32 @@ def upgrade() -> None:
     # -----------------------------------------------------------------------
     # 8. Approvals: drop unique constraint on package_id, add is_final
     # -----------------------------------------------------------------------
-    with op.batch_alter_table("approvals") as batch_op:
-        try:
-            batch_op.drop_constraint("uq_approvals_package_id", type_="unique")
-        except Exception:
-            pass
+    if is_pg:
+        bind.execute(text("""
+            DO $$
+            DECLARE
+                con_name text;
+            BEGIN
+                SELECT conname INTO con_name FROM pg_constraint
+                WHERE conrelid = 'approvals'::regclass
+                  AND contype = 'u'
+                  AND array_length(conkey, 1) = 1
+                  AND conkey[1] = (SELECT attnum FROM pg_attribute WHERE attrelid = 'approvals'::regclass AND attname = 'package_id');
+                IF con_name IS NOT NULL THEN
+                    EXECUTE format('ALTER TABLE approvals DROP CONSTRAINT %I', con_name);
+                END IF;
+            END $$;
+        """))
 
+    with op.batch_alter_table("approvals") as batch_op:
         batch_op.add_column(
             sa.Column("is_final", sa.Boolean, nullable=True, default=True)
         )
 
-    bind.execute(text("UPDATE approvals SET is_final = 1 WHERE is_final IS NULL"))
+    if is_pg:
+        bind.execute(text("UPDATE approvals SET is_final = TRUE WHERE is_final IS NULL"))
+    else:
+        bind.execute(text("UPDATE approvals SET is_final = 1 WHERE is_final IS NULL"))
 
     with op.batch_alter_table("approvals") as batch_op:
         batch_op.alter_column("is_final", nullable=False, server_default="1")
