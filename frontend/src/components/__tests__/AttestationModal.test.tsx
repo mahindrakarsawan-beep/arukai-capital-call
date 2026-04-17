@@ -138,7 +138,7 @@ describe("AttestationModal — reject variant", () => {
   it("renders rejection attestation language", () => {
     renderRejectModal();
     expect(
-      screen.getByText(/I reject this capital-call package/i)
+      screen.getByText(/I have reviewed this package and am recording a rejection/i)
     ).toBeInTheDocument();
   });
 
@@ -307,6 +307,67 @@ describe("AttestationModal — flagged-field warning panel (A2.1)", () => {
       );
     });
     expect(hasBrass).toBe(false);
+  });
+});
+
+describe("AttestationModal — zero-flags positive panel (A2.2 / Figma 37:2)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("renders zero-flags panel when flaggedFieldCount === 0 and flaggedFields provided", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 0,
+        flaggedFields: [],
+      },
+    });
+    expect(screen.getByTestId("zero-flags-panel")).toBeInTheDocument();
+  });
+
+  it("renders zero-flags panel copy", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 0,
+        flaggedFields: [],
+      },
+    });
+    expect(
+      screen.getByText(
+        /All extracted fields at high confidence\. No items flagged for review\./i
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("does NOT render flagged-field-warning when zero-flags panel shown", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 0,
+        flaggedFields: [],
+      },
+    });
+    expect(screen.queryByTestId("flagged-field-warning")).not.toBeInTheDocument();
+  });
+
+  it("does NOT render zero-flags panel when flaggedFieldCount is undefined (not explicitly set)", () => {
+    // When flaggedFields not passed at all, neither panel renders
+    renderApproveModal();
+    expect(screen.queryByTestId("zero-flags-panel")).not.toBeInTheDocument();
+  });
+
+  it("renders flagged-field-warning (not zero-flags) when count > 0", () => {
+    renderApproveModal({
+      packageSummary: {
+        ...mockPackageSummary,
+        flaggedFieldCount: 2,
+        flaggedFields: ["Due date", "Fund name"],
+      },
+    });
+    expect(screen.getByTestId("flagged-field-warning")).toBeInTheDocument();
+    expect(screen.queryByTestId("zero-flags-panel")).not.toBeInTheDocument();
   });
 });
 

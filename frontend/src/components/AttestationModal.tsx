@@ -10,6 +10,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { FlaggedFieldWarning } from "@/components/FlaggedFieldWarning";
+import { ZeroFlagsPanel } from "@/components/ZeroFlagsPanel";
+import { attestPackage } from "@/lib/api";
 
 interface PackageSummary {
   title: string;
@@ -109,30 +111,12 @@ export function AttestationModal({
         return;
       }
 
-      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-      const res = await fetch(`${apiBase}/approvals/${documentId}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          decision: variant === "approve" ? "approved" : "rejected",
-          note: note.trim() || undefined,
-        }),
-      });
-
-      if (!res.ok) {
-        let message = `Failed (${res.status})`;
-        try {
-          const body = await res.json();
-          message = body?.detail ?? body?.message ?? message;
-        } catch {
-          // ignore
-        }
-        setError(message);
-        return;
-      }
+      await attestPackage(
+        documentId,
+        variant === "approve" ? "approved" : "rejected",
+        note.trim(),
+        token
+      );
 
       onSuccess();
     } catch (err) {
@@ -146,12 +130,12 @@ export function AttestationModal({
 
   const attestationText = isApprove
     ? "I attest that I have reviewed this capital-call package, considered the reviewer notes above, and approve it for operator execution. This decision is recorded against my name and the current timestamp."
-    : "I reject this capital-call package. The reasons noted below are recorded against my name and the current timestamp. The package will be closed as rejected.";
+    : "I have reviewed this package and am recording a rejection. The package will be returned for revision with the following reason.";
 
   return (
-    /* Scrim / backdrop */
+    /* Scrim / backdrop — desktop: centered overlay, mobile: fullscreen sheet (§6/S6) */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4"
       style={{ backgroundColor: "rgba(13,15,18,0.55)" }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -162,8 +146,8 @@ export function AttestationModal({
     >
       <div
         ref={modalRef}
-        className="w-full max-w-lg rounded-[16px] border border-border-hairline bg-bg-bone p-8 shadow-xl"
-        style={{ maxHeight: "90vh", overflowY: "auto" }}
+        className="w-full sm:max-w-lg rounded-t-[16px] sm:rounded-[16px] border border-border-hairline bg-bg-bone p-6 sm:p-8 shadow-xl"
+        style={{ maxHeight: "95dvh", overflowY: "auto" }}
       >
         {/* Error strip */}
         {error && (
@@ -221,11 +205,20 @@ export function AttestationModal({
           )}
         </div>
 
-        {/* Flagged-field warning panel (A2.1) — amber, shown only when count > 0 */}
-        <FlaggedFieldWarning
-          flaggedCount={packageSummary.flaggedFieldCount ?? 0}
-          flaggedFields={packageSummary.flaggedFields ?? []}
-        />
+        {/* Confidence panel (A2.1 + A2.2):
+            - flaggedFieldCount === 0 and explicitly provided → ZeroFlagsPanel (green)
+            - flaggedFieldCount > 0 → FlaggedFieldWarning (amber)
+            - flaggedFieldCount not provided → nothing rendered */}
+        {packageSummary.flaggedFields !== undefined ? (
+          packageSummary.flaggedFieldCount === 0 ? (
+            <ZeroFlagsPanel />
+          ) : (
+            <FlaggedFieldWarning
+              flaggedCount={packageSummary.flaggedFieldCount ?? 0}
+              flaggedFields={packageSummary.flaggedFields}
+            />
+          )
+        ) : null}
 
         {/* Reviewer notes recap */}
         <div className="mb-5">

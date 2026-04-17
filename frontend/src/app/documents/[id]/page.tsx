@@ -79,7 +79,17 @@ export default async function DocumentDetailPage({ params }: Props) {
     undefined
   );
 
-  const canAttest = user?.role === "admin" && doc.status === "pending_review";
+  // Show action bar for approvers (admin/approver) on pending_review,
+  // and for reviewers on pending_review/under_review/intake_complete states.
+  const isApprover = user?.role === "admin" || user?.role === "approver";
+  const isReviewer = user?.role === "reviewer";
+  const canAttest = isApprover && doc.status === "pending_review";
+  const showActions =
+    canAttest ||
+    (isReviewer &&
+      (doc.status === "pending_review" ||
+        doc.status === "approved" ||
+        doc.status === "rejected"));
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -238,14 +248,16 @@ export default async function DocumentDetailPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Bottom action bar — attestation modal trigger */}
-        {canAttest && (
+        {/* Bottom action bar — role-routed actions (spec §6.5) */}
+        {showActions && (
           <div className="mt-6">
             <PackageDetailActions
               documentId={doc.id}
               packageTitle={doc.filename}
               classification={classification?.doc_type ?? undefined}
               confidence={classification?.confidence ?? undefined}
+              userRole={user?.role}
+              packageState={doc.status}
             />
           </div>
         )}
