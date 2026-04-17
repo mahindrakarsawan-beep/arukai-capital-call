@@ -1,29 +1,72 @@
 "use client";
 
 /**
- * Intake page — /documents/upload (spec §1.2, §1.7)
+ * Intake page — /documents/upload (spec §1.2, §1.7, §C1)
  * H1: "Begin governed intake"
  * Subtext: per spec §1.2 upload subtext.
  * Submit: "Submit package for intake"
  * Cancel: "Discard draft"
  * File label: "Source PDF"
+ *
+ * C1: On successful upload, shows 4-step IntakeCeremony overlay (~1.2s),
+ * then redirects to /documents/{id}. Reduced-motion: 120ms per step.
+ * Step sequencer: 300ms per step (120ms in reduced-motion).
  */
 
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { StaleBanner } from "@/components/StaleBanner";
+import { IntakeCeremony } from "@/components/IntakeCeremony";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
 
+/** Step interval: 300ms full motion, 120ms reduced motion (per spec C1). */
+const STEP_MS_FULL = 300;
+const STEP_MS_REDUCED = 120;
+const TOTAL_STEPS = 4;
+
 export default function UploadPage() {
   const router = useRouter();
+  const reducedMotion = useReducedMotion();
   const fileRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // Ceremony state
+  const [ceremonyVisible, setCeremonyVisible] = useState(false);
+  const [ceremonyStep, setCeremonyStep] = useState(1);
+  const ceremonyRedirectRef = useRef<string | null>(null);
+
+  // Step sequencer: advances ceremonyStep every STEP_MS, then redirects
+  const runCeremony = useCallback(
+    (redirectTo: string) => {
+      const stepMs = reducedMotion ? STEP_MS_REDUCED : STEP_MS_FULL;
+      ceremonyRedirectRef.current = redirectTo;
+      setCeremonyVisible(true);
+      setCeremonyStep(1);
+
+      let step = 1;
+      const advance = () => {
+        step += 1;
+        if (step <= TOTAL_STEPS) {
+          setCeremonyStep(step);
+          setTimeout(advance, stepMs);
+        } else {
+          // All steps complete — redirect
+          const dest = ceremonyRedirectRef.current ?? "/documents";
+          router.push(dest);
+        }
+      };
+
+      setTimeout(advance, stepMs);
+    },
+    [reducedMotion, router]
+  );
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0] ?? null;
@@ -112,7 +155,8 @@ export default function UploadPage() {
       }
 
       const doc = await res.json();
-      router.push(`/documents/${doc.id}`);
+      // C1: Show intake ceremony overlay before redirect
+      runCeremony(`/documents/${doc.id}`);
     } catch (err) {
       setServerError(
         err instanceof Error ? err.message : "Package submitted. Intake in progress."
@@ -124,6 +168,12 @@ export default function UploadPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {/* C1: Private intake ceremony overlay — shown after successful submit */}
+      <IntakeCeremony
+        visible={ceremonyVisible}
+        activeStep={ceremonyStep}
+        reducedMotion={reducedMotion}
+      />
       {/* Minimal nav */}
       <header className="border-b border-border-hairline bg-bg-bone sticky top-0">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
@@ -211,14 +261,6 @@ export default function UploadPage() {
               </p>
             )}
           </div>
-
-          {submitting && (
-            <div className="mt-4 rounded-md bg-[rgba(60,72,88,0.06)] px-3 py-2.5">
-              <p className="font-interface text-sm text-fg-slate">
-                Package submitted. Intake in progress…
-              </p>
-            </div>
-          )}
 
           <div className="mt-6 flex gap-3">
             <Button
