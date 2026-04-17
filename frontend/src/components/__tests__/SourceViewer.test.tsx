@@ -176,7 +176,7 @@ describe("SourceViewer — 401 path", () => {
     expect(
       screen.getByText(/session expired\. please re-authenticate/i)
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /sign in again/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /re-enter workflow/i })).toBeInTheDocument();
   });
 
   it("shows 'Session expired' when token bridge returns null", async () => {

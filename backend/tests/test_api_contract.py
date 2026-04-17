@@ -6,6 +6,12 @@ corresponding route exists in the backend with the matching HTTP method.
 
 Paths containing template literals like `${id}` are converted to a regex
 pattern and matched against backend routes rather than exact-string compared.
+
+Coverage:
+- Static fetch() calls: `${API_BASE}/path`
+- Return-URL helpers: return `${API_BASE}/path`
+- Dynamic-suffix calls: fetch(`${API_BASE}/audit${qs ...}`)  → extracts /audit
+- audit/export.csv helper: return `${API_BASE}/audit/export.csv${qs ...}` → /audit/export.csv
 """
 import re
 from pathlib import Path
@@ -20,47 +26,72 @@ from fastapi.routing import APIRoute
 
 FRONTEND_API_TS = Path("/home/sawan/arukai-capital-call/frontend/src/lib/api.ts")
 
-# Regex to find  fetch(`${API_BASE}/some/path`, ...)
-#   or            fetch(`${API_BASE}/some/${id}/path`, ...)
-# and also the string variant  `${API_BASE}/documents/${id}/pdf`
-# returned from plain functions (not fetch calls directly).
+# Primary pattern: backtick literal that starts with API_BASE and has a
+# slash-delimited path segment — stops at backtick, quote, whitespace, or ')'.
+# Handles both full static paths and paths with template-var segments like ${id}.
 _FETCH_PATTERN = re.compile(
     r"""`\$\{API_BASE\}(/[^`"'\s)]+)`""",
+)
+
+# Secondary pattern for dynamic-suffix lines:
+#   fetch(`${API_BASE}/audit${qs ...}`)  →  extracts /audit
+#   return `${API_BASE}/audit/export.csv${qs ...}`  →  /audit/export.csv
+# Matches the static prefix of the path before the first ${ template expression.
+_DYNAMIC_SUFFIX_PATTERN = re.compile(
+    r"""`\$\{API_BASE\}(/[A-Za-z0-9_/.-]+)\$\{""",
 )
 
 # Template-literal variable segments like ${id}, ${someVar}
 _TEMPLATE_VAR = re.compile(r"\$\{[^}]+\}")
 
 # HTTP method from the fetch options object  method: "POST"
-# We want to pair URLs with their methods.
 _METHOD_PATTERN = re.compile(r'method:\s*"([A-Z]+)"')
+
+# Lines containing a return statement (no fetch) — always GET
+_RETURN_LINE = re.compile(r'\breturn\b')
 
 
 def _extract_frontend_calls(src: str) -> list[tuple[str, str]]:
     """
     Return a list of (method, path_template) tuples from api.ts.
 
-    We scan each fetch/return-url occurrence and look backwards for a
-    method: "..." in the same call block (within 5 lines).  If no method is
-    found, it defaults to GET.
+    Strategy:
+    1. Run _FETCH_PATTERN first (static / template-var paths).
+    2. Run _DYNAMIC_SUFFIX_PATTERN for paths that have a dynamic query-string
+       suffix (e.g. /audit${qs ? ...}) — these are always GET.
+
+    We de-duplicate so the same (method, path) is not tested twice.
     """
     calls: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     lines = src.splitlines()
 
     for line_no, line in enumerate(lines):
+        # --- Primary match ---
         m = _FETCH_PATTERN.search(line)
-        if not m:
+        if m:
+            raw_path = m.group(1)
+            context = "\n".join(lines[line_no : line_no + 7])
+            method_match = _METHOD_PATTERN.search(context)
+            method = method_match.group(1) if method_match else "GET"
+            key = (method, raw_path)
+            if key not in seen:
+                seen.add(key)
+                calls.append(key)
             continue
 
-        raw_path = m.group(1)
-
-        # Determine the HTTP method by scanning the surrounding context
-        # (up to 6 lines forward and the same line).
-        context = "\n".join(lines[line_no : line_no + 7])
-        method_match = _METHOD_PATTERN.search(context)
-        method = method_match.group(1) if method_match else "GET"
-
-        calls.append((method, raw_path))
+        # --- Secondary match: dynamic suffix (always GET helper) ---
+        m2 = _DYNAMIC_SUFFIX_PATTERN.search(line)
+        if m2:
+            raw_path = m2.group(1)
+            # If this line is inside a fetch(), check for method; otherwise GET.
+            context = "\n".join(lines[line_no : line_no + 7])
+            method_match = _METHOD_PATTERN.search(context)
+            method = method_match.group(1) if method_match else "GET"
+            key = (method, raw_path)
+            if key not in seen:
+                seen.add(key)
+                calls.append(key)
 
     return calls
 

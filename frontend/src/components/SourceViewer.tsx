@@ -125,7 +125,7 @@ export function SourceViewer({
         {filename}
       </span>
       <span>{formatFileSize(sizeBytes)}</span>
-      <span>Uploaded {formatDate(uploadedAt)}</span>
+      <span>Received {formatDate(uploadedAt)}</span>
     </div>
   );
 
@@ -165,7 +165,7 @@ export function SourceViewer({
           href="/"
           className="font-interface text-sm font-semibold text-fg-obsidian underline underline-offset-2 hover:text-fg-slate transition-colors duration-fast"
         >
-          Sign in again
+          Re-enter workflow
         </a>
       </div>
     );

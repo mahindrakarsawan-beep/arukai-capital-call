@@ -113,7 +113,15 @@ async function handleResponse<T>(res: Response): Promise<T> {
     let message = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      message = body?.detail ?? body?.message ?? message;
+      const raw = body?.detail ?? body?.message;
+      if (typeof raw === "string") {
+        message = raw;
+      } else if (Array.isArray(raw) && raw.length > 0) {
+        // Pydantic validation error: detail is an array of {msg, loc, type} objects
+        message = raw.map((e: { msg?: string }) => e?.msg ?? JSON.stringify(e)).join("; ");
+      } else if (raw != null) {
+        message = JSON.stringify(raw);
+      }
     } catch {
       // ignore JSON parse errors
     }
