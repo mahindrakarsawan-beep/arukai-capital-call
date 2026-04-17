@@ -19,20 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user, require_role
 from app.db import get_db
 from app.models import AuditEvent, User
+from app.schemas import AuditEventOut
 
 router = APIRouter(tags=["audit"])
-
-
-class AuditEventOut(BaseModel):
-    id: str
-    package_id: Optional[str] = None
-    actor_user_id: Optional[str] = None
-    action: str
-    before_state: Optional[dict] = None
-    after_state: Optional[dict] = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 class AuditPageOut(BaseModel):
@@ -128,18 +117,7 @@ async def list_audit_events(
     result = await db.execute(q)
     events = result.scalars().all()
 
-    items = [
-        AuditEventOut(
-            id=e.id,
-            package_id=e.package_id,
-            actor_user_id=e.actor_user_id,
-            action=e.action,
-            before_state=e.before_state,
-            after_state=e.after_state,
-            created_at=e.created_at,
-        )
-        for e in events
-    ]
+    items = [AuditEventOut.model_validate(e) for e in events]
 
     return AuditPageOut(
         total=total,
@@ -171,7 +149,7 @@ async def export_audit_csv(
         q = q.where(and_(*conditions))
 
     result = await db.execute(q)
-    events = result.scalars().all()
+    events = result.scalars().yield_per(500)
 
     def _generate_csv():
         output = io.StringIO()
@@ -224,15 +202,4 @@ async def get_package_audit(
         .order_by(AuditEvent.created_at.asc())
     )
     events = result.scalars().all()
-    return [
-        AuditEventOut(
-            id=e.id,
-            package_id=e.package_id,
-            actor_user_id=e.actor_user_id,
-            action=e.action,
-            before_state=e.before_state,
-            after_state=e.after_state,
-            created_at=e.created_at,
-        )
-        for e in events
-    ]
+    return [AuditEventOut.model_validate(e) for e in events]

@@ -22,6 +22,7 @@ from app.models import (
     ReviewerNote,
     User,
 )
+from app.schemas import AuditEventOut
 from app.state_machine import (
     DECISION_RECORDED,
     INTAKE_COMPLETE,
@@ -97,18 +98,6 @@ class ReviewNoteOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class AuditEventOut(BaseModel):
-    id: str
-    package_id: Optional[str] = None
-    actor_user_id: Optional[str] = None
-    action: str
-    before_state: Optional[Any] = None
-    after_state: Optional[Any] = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class ApprovalOut(BaseModel):
     id: str
     package_id: str
@@ -179,6 +168,14 @@ async def _write_audit(
         after_state=after_state,
     )
     db.add(event)
+
+
+async def _get_package_or_404(db: AsyncSession, pkg_id: str) -> Package:
+    result = await db.execute(select(Package).where(Package.id == pkg_id))
+    pkg = result.scalar_one_or_none()
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+    return pkg
 
 
 # ---------------------------------------------------------------------------
@@ -353,18 +350,7 @@ async def get_package(
         clf = _get_current_classification(doc)
         clf_out = None
         if clf:
-            clf_out = ClassificationOut(
-                id=clf.id,
-                document_type=clf.document_type,
-                confidence=clf.confidence,
-                key_indicators=clf.key_indicators,
-                extracted_fields=clf.extracted_fields,
-                is_current=clf.is_current,
-                model_version=clf.model_version,
-                fallback=clf.fallback,
-                classification_error=clf.classification_error,
-                created_at=clf.created_at,
-            )
+            clf_out = ClassificationOut.model_validate(clf)
         docs_out.append(
             DocumentOut(
                 id=doc.id,
@@ -377,43 +363,18 @@ async def get_package(
         )
 
     notes_out = [
-        ReviewNoteOut(
-            id=n.id,
-            package_id=n.package_id,
-            author_user_id=n.author_user_id,
-            body=n.body,
-            supersedes_note_id=n.supersedes_note_id,
-            created_at=n.created_at,
-        )
+        ReviewNoteOut.model_validate(n)
         for n in sorted(pkg.review_notes, key=lambda n: n.created_at, reverse=True)
     ]
 
     audit_out = [
-        AuditEventOut(
-            id=e.id,
-            package_id=e.package_id,
-            actor_user_id=e.actor_user_id,
-            action=e.action,
-            before_state=e.before_state,
-            after_state=e.after_state,
-            created_at=e.created_at,
-        )
+        AuditEventOut.model_validate(e)
         for e in sorted(pkg.audit_events, key=lambda e: e.created_at)
     ]
 
     # Final approval (is_final=True)
     final_approval = next((a for a in pkg.approvals if a.is_final), None)
-    approval_out = None
-    if final_approval:
-        approval_out = ApprovalOut(
-            id=final_approval.id,
-            package_id=final_approval.package_id,
-            decision=final_approval.decision,
-            note=final_approval.note,
-            is_final=final_approval.is_final,
-            decided_at=final_approval.decided_at,
-            decided_by=final_approval.decided_by,
-        )
+    approval_out = ApprovalOut.model_validate(final_approval) if final_approval else None
 
     return PackageDetailOut(
         id=pkg.id,
@@ -477,10 +438,7 @@ async def claim_package(
     db: AsyncSession = Depends(get_db),
 ):
     """Reviewer claims an unclaimed package. 409 if already claimed."""
-    result = await db.execute(select(Package).where(Package.id == pkg_id))
-    pkg = result.scalar_one_or_none()
-    if pkg is None:
-        raise HTTPException(status_code=404, detail="Package not found")
+    pkg = await _get_package_or_404(db, pkg_id)
 
     if pkg.claimed_by_user_id is not None:
         raise HTTPException(
@@ -539,10 +497,7 @@ async def release_package(
     db: AsyncSession = Depends(get_db),
 ):
     """Release claim on a package. Validates no notes recorded (R4)."""
-    result = await db.execute(select(Package).where(Package.id == pkg_id))
-    pkg = result.scalar_one_or_none()
-    if pkg is None:
-        raise HTTPException(status_code=404, detail="Package not found")
+    pkg = await _get_package_or_404(db, pkg_id)
 
     if pkg.claimed_by_user_id is None:
         raise HTTPException(status_code=409, detail="Package is not currently claimed")
@@ -590,10 +545,7 @@ async def transition_package(
     db: AsyncSession = Depends(get_db),
 ):
     """State transition endpoint. Uses optimistic locking (version column)."""
-    result = await db.execute(select(Package).where(Package.id == pkg_id))
-    pkg = result.scalar_one_or_none()
-    if pkg is None:
-        raise HTTPException(status_code=404, detail="Package not found")
+    pkg = await _get_package_or_404(db, pkg_id)
 
     # Count notes for the release-claim guard (R4)
     note_count_result = await db.execute(
@@ -676,10 +628,7 @@ async def create_review_note(
     if not body.body or not body.body.strip():
         raise HTTPException(status_code=422, detail="Note body must not be empty")
 
-    result = await db.execute(select(Package).where(Package.id == pkg_id))
-    pkg = result.scalar_one_or_none()
-    if pkg is None:
-        raise HTTPException(status_code=404, detail="Package not found")
+    pkg = await _get_package_or_404(db, pkg_id)
 
     # Validate supersedes_note_id if provided
     if body.supersedes_note_id:
@@ -753,19 +702,15 @@ async def attest_package(
             detail="Attestation note required on rejection",
         )
 
-    result = await db.execute(select(Package).where(Package.id == pkg_id))
-    pkg = result.scalar_one_or_none()
-    if pkg is None:
-        raise HTTPException(status_code=404, detail="Package not found")
+    pkg = await _get_package_or_404(db, pkg_id)
 
-    # Valid from-states for attestation
-    if pkg.state not in (ROUTED_FOR_APPROVAL, "exception_surfaced"):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Transition {pkg.state}→{DECISION_RECORDED} not permitted from state {pkg.state}"
-            ),
-        )
+    # Validate transition through state machine
+    try:
+        validate_transition(pkg.state, DECISION_RECORDED, current_user.role)
+    except InvalidTransition as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except InsufficientRole:
+        raise HTTPException(status_code=403, detail="This action is outside your workflow role.")
 
     old_state = pkg.state
     old_version = pkg.version
@@ -814,7 +759,7 @@ async def attest_package(
     pkg.state = DECISION_RECORDED
     pkg.version = new_version
 
-    action_name = "attested_decision" if body.action == "approved" else "attested_decision"
+    action_name = "attested_approval" if body.action == "approved" else "recorded_rejection"
     await _write_audit(
         db, pkg_id, current_user.id, action_name,
         before_state={"state": old_state},
