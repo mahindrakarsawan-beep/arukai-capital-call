@@ -56,7 +56,42 @@ export interface LoginResponse {
 export interface User {
   id: string;
   email: string;
-  role: "admin" | "reviewer";
+  role: "admin" | "reviewer" | "approver" | "operator";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AuditEvent {
+  id: string;
+  action: string;
+  /** User ID of the actor (may be absent for system events). */
+  actor_id?: string;
+  actor_email?: string;
+  /** "USER" | "SYSTEM" — defaults to "USER" when actor_email present, else "SYSTEM". */
+  actor_type?: "USER" | "SYSTEM";
+  package_id?: string;
+  package_title?: string;
+  created_at: string;
+  before_state?: Record<string, unknown> | null;
+  after_state?: Record<string, unknown> | null;
+}
+
+export interface AuditFilters {
+  actor_id?: string;
+  action?: string;
+  from_date?: string;
+  to_date?: string;
+  package_id?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface AuditListResponse {
+  items: AuditEvent[];
+  next_cursor?: string;
+  total: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,31 +188,86 @@ export async function uploadDocument(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Approvals
+// Attestation — POST /packages/{id}/attest (B1 endpoint)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function approveDocument(
+/**
+ * POST /packages/{id}/attest
+ * Role gate: approver only.
+ * Body: { action: "approved" | "rejected", note: string }
+ * Replaces old approveDocument / rejectDocument.
+ */
+export async function attestPackage(
   id: string,
-  token: string,
-  reason?: string
+  action: "approved" | "rejected",
+  note: string,
+  token: string
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/approvals/${id}`, {
+  const res = await fetch(`${API_BASE}/packages/${id}/attest`, {
     method: "POST",
     headers: buildHeaders(token),
-    body: JSON.stringify({ decision: "approved", note: reason ?? "" }),
+    body: JSON.stringify({ action, note }),
   });
   return handleResponse<void>(res);
 }
 
-export async function rejectDocument(
+// ─────────────────────────────────────────────────────────────────────────────
+// Claim / Release — POST /packages/{id}/claim|release (B1 endpoints)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /packages/{id}/claim
+ * Role gate: reviewer only. Transitions package to under_review (claimed).
+ */
+export async function claimPackage(
   id: string,
-  token: string,
-  reason: string
+  token: string
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/approvals/${id}`, {
+  const res = await fetch(`${API_BASE}/packages/${id}/claim`, {
     method: "POST",
     headers: buildHeaders(token),
-    body: JSON.stringify({ decision: "rejected", note: reason }),
+    body: JSON.stringify({}),
+  });
+  return handleResponse<void>(res);
+}
+
+/**
+ * POST /packages/{id}/release
+ * Role gate: reviewer — only the current claimant.
+ */
+export async function releasePackage(
+  id: string,
+  token: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/packages/${id}/release`, {
+    method: "POST",
+    headers: buildHeaders(token),
+    body: JSON.stringify({}),
+  });
+  return handleResponse<void>(res);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State transitions — POST /packages/{id}/transition (B1 endpoint)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /packages/{id}/transition
+ * Validates against §2.2 transition matrix on the backend.
+ * Invalid transitions → 409 with detail "Transition {from}→{to} not permitted".
+ */
+export async function transitionPackage(
+  id: string,
+  nextState: string,
+  token: string,
+  reason?: string
+): Promise<void> {
+  const body: Record<string, string> = { next_state: nextState };
+  if (reason) body.reason = reason;
+  const res = await fetch(`${API_BASE}/packages/${id}/transition`, {
+    method: "POST",
+    headers: buildHeaders(token),
+    body: JSON.stringify(body),
   });
   return handleResponse<void>(res);
 }
@@ -188,4 +278,52 @@ export async function rejectDocument(
 
 export function getDocumentDownloadUrl(id: string): string {
   return `${API_BASE}/documents/${id}/pdf`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * List global audit events with optional filters and cursor-based pagination.
+ * Requires admin or approver role; backend enforces at the API layer.
+ */
+export async function listAuditEvents(
+  token: string,
+  filters?: AuditFilters
+): Promise<AuditListResponse> {
+  const params = new URLSearchParams();
+  if (filters?.actor_id) params.set("actor_id", filters.actor_id);
+  if (filters?.action) params.set("action", filters.action);
+  if (filters?.from_date) params.set("from_date", filters.from_date);
+  if (filters?.to_date) params.set("to_date", filters.to_date);
+  if (filters?.package_id) params.set("package_id", filters.package_id);
+  if (filters?.limit) params.set("limit", String(filters.limit));
+  if (filters?.cursor) params.set("cursor", filters.cursor);
+
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/audit${qs ? `?${qs}` : ""}`, {
+    headers: buildHeaders(token),
+    cache: "no-store",
+  });
+  return handleResponse<AuditListResponse>(res);
+}
+
+/**
+ * Returns the streaming CSV export URL for the audit ledger.
+ * Caller is responsible for appending the Authorization header or using
+ * a server-side fetch; for direct <a href> download the token must be
+ * passed as a query param if the backend supports it, or via a server
+ * action that streams the response.
+ */
+export function getAuditExportUrl(filters?: Omit<AuditFilters, "limit" | "cursor">): string {
+  const params = new URLSearchParams();
+  if (filters?.actor_id) params.set("actor_id", filters.actor_id);
+  if (filters?.action) params.set("action", filters.action);
+  if (filters?.from_date) params.set("from_date", filters.from_date);
+  if (filters?.to_date) params.set("to_date", filters.to_date);
+  if (filters?.package_id) params.set("package_id", filters.package_id);
+
+  const qs = params.toString();
+  return `${API_BASE}/audit/export.csv${qs ? `?${qs}` : ""}`;
 }
