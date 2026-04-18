@@ -1,0 +1,414 @@
+{
+  "scorecard": [
+    {
+      "model": "claude-haiku-4-5-20251001",
+      "provider": "anthropic",
+      "tier": "fast",
+      "scores": {
+        "DocExtract": 100.0,
+        "CodeGen": 100,
+        "CodeValid": 85,
+        "Testing": 100,
+        "Logic": 100,
+        "ProdMgmt": 100,
+        "UXDesign": 65
+      },
+      "average": 92.85714285714286,
+      "total_cost": 0.032077600000000005,
+      "total_latency_ms": 63669
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "tier": "fast",
+      "scores": {
+        "DocExtract": 100.0,
+        "CodeGen": 100,
+        "CodeValid": 85,
+        "Testing": 90,
+        "Logic": 100,
+        "ProdMgmt": 100,
+        "UXDesign": 75
+      },
+      "average": 92.85714285714286,
+      "total_cost": 0.0029137499999999997,
+      "total_latency_ms": 72698
+    },
+    {
+      "model": "mistral-small-latest",
+      "provider": "mistral",
+      "tier": "fast",
+      "scores": {
+        "DocExtract": 100.0,
+        "CodeGen": 100,
+        "CodeValid": 100,
+        "Testing": 90,
+        "Logic": 100,
+        "ProdMgmt": 100,
+        "UXDesign": 90
+      },
+      "average": 97.14285714285714,
+      "total_cost": 0.0016941999999999999,
+      "total_latency_ms": 32046
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "tier": "standard",
+      "scores": {
+        "DocExtract": 100.0,
+        "CodeGen": 100,
+        "CodeValid": 70,
+        "Testing": 100,
+        "Logic": 100,
+        "ProdMgmt": 100,
+        "UXDesign": 90
+      },
+      "average": 94.28571428571429,
+      "total_cost": 0.125967,
+      "total_latency_ms": 135030
+    },
+    {
+      "model": "gpt-4o",
+      "provider": "openai",
+      "tier": "premium",
+      "scores": {
+        "DocExtract": 100.0,
+        "CodeGen": 100,
+        "CodeValid": 85,
+        "Testing": 90,
+        "Logic": 80,
+        "ProdMgmt": 90,
+        "UXDesign": 75
+      },
+      "average": 88.57142857142857,
+      "total_cost": 0.0440125,
+      "total_latency_ms": 40584
+    },
+    {
+      "model": "mistral-large-latest",
+      "provider": "mistral",
+      "tier": "premium",
+      "scores": {
+        "DocExtract": 100.0,
+        "CodeGen": 100,
+        "CodeValid": 70,
+        "Testing": 90,
+        "Logic": 100,
+        "ProdMgmt": 100,
+        "UXDesign": 75
+      },
+      "average": 90.71428571428571,
+      "total_cost": 0.047132,
+      "total_latency_ms": 110738
+    }
+  ],
+  "detailed": {
+    "claude-haiku-4-5-20251001": {
+      "1. Document Extraction": {
+        "score": 100.0,
+        "latency_ms": 2178,
+        "cost_usd": 0.0012744000000000002,
+        "input_tokens": 213,
+        "output_tokens": 276
+      },
+      "2. Code Generation": {
+        "score": 100,
+        "latency_ms": 8277,
+        "cost_usd": 0.0061016,
+        "input_tokens": 127,
+        "output_tokens": 1500
+      },
+      "3. Code Validation": {
+        "score": 85,
+        "latency_ms": 5785,
+        "cost_usd": 0.0029504,
+        "input_tokens": 258,
+        "output_tokens": 686
+      },
+      "4. Test Writing": {
+        "score": 100,
+        "latency_ms": 7662,
+        "cost_usd": 0.0061568000000000005,
+        "input_tokens": 196,
+        "output_tokens": 1500
+      },
+      "5. Logic / Reasoning": {
+        "score": 100,
+        "latency_ms": 8863,
+        "cost_usd": 0.0032864,
+        "input_tokens": 273,
+        "output_tokens": 767
+      },
+      "6. Product Management": {
+        "score": 100,
+        "latency_ms": 15294,
+        "cost_usd": 0.0061351999999999995,
+        "input_tokens": 169,
+        "output_tokens": 1500
+      },
+      "7. UX Design Critique": {
+        "score": 65,
+        "latency_ms": 15610,
+        "cost_usd": 0.0061728,
+        "input_tokens": 216,
+        "output_tokens": 1500
+      }
+    },
+    "gpt-4o-mini": {
+      "1. Document Extraction": {
+        "score": 100.0,
+        "latency_ms": 3708,
+        "cost_usd": 0.00013575,
+        "input_tokens": 193,
+        "output_tokens": 178
+      },
+      "2. Code Generation": {
+        "score": 100,
+        "latency_ms": 5879,
+        "cost_usd": 0.00022095,
+        "input_tokens": 117,
+        "output_tokens": 339
+      },
+      "3. Code Validation": {
+        "score": 85,
+        "latency_ms": 12967,
+        "cost_usd": 0.0006492,
+        "input_tokens": 212,
+        "output_tokens": 1029
+      },
+      "4. Test Writing": {
+        "score": 90,
+        "latency_ms": 15517,
+        "cost_usd": 0.0006365999999999999,
+        "input_tokens": 176,
+        "output_tokens": 1017
+      },
+      "5. Logic / Reasoning": {
+        "score": 100,
+        "latency_ms": 9215,
+        "cost_usd": 0.0003453,
+        "input_tokens": 242,
+        "output_tokens": 515
+      },
+      "6. Product Management": {
+        "score": 100,
+        "latency_ms": 9327,
+        "cost_usd": 0.00033495,
+        "input_tokens": 161,
+        "output_tokens": 518
+      },
+      "7. UX Design Critique": {
+        "score": 75,
+        "latency_ms": 16085,
+        "cost_usd": 0.000591,
+        "input_tokens": 200,
+        "output_tokens": 935
+      }
+    },
+    "mistral-small-latest": {
+      "1. Document Extraction": {
+        "score": 100.0,
+        "latency_ms": 1399,
+        "cost_usd": 8.95e-05,
+        "input_tokens": 220,
+        "output_tokens": 225
+      },
+      "2. Code Generation": {
+        "score": 100,
+        "latency_ms": 3312,
+        "cost_usd": 0.00016219999999999999,
+        "input_tokens": 131,
+        "output_tokens": 497
+      },
+      "3. Code Validation": {
+        "score": 100,
+        "latency_ms": 5026,
+        "cost_usd": 0.0002987,
+        "input_tokens": 224,
+        "output_tokens": 921
+      },
+      "4. Test Writing": {
+        "score": 90,
+        "latency_ms": 8508,
+        "cost_usd": 0.0004548,
+        "input_tokens": 186,
+        "output_tokens": 1454
+      },
+      "5. Logic / Reasoning": {
+        "score": 100,
+        "latency_ms": 2518,
+        "cost_usd": 0.0001488,
+        "input_tokens": 255,
+        "output_tokens": 411
+      },
+      "6. Product Management": {
+        "score": 100,
+        "latency_ms": 4484,
+        "cost_usd": 0.00021079999999999997,
+        "input_tokens": 170,
+        "output_tokens": 646
+      },
+      "7. UX Design Critique": {
+        "score": 90,
+        "latency_ms": 6799,
+        "cost_usd": 0.00032940000000000004,
+        "input_tokens": 216,
+        "output_tokens": 1026
+      }
+    },
+    "claude-sonnet-4-6": {
+      "1. Document Extraction": {
+        "score": 100.0,
+        "latency_ms": 4348,
+        "cost_usd": 0.004392,
+        "input_tokens": 214,
+        "output_tokens": 250
+      },
+      "2. Code Generation": {
+        "score": 100,
+        "latency_ms": 18150,
+        "cost_usd": 0.022869,
+        "input_tokens": 128,
+        "output_tokens": 1499
+      },
+      "3. Code Validation": {
+        "score": 70,
+        "latency_ms": 12163,
+        "cost_usd": 0.012987,
+        "input_tokens": 259,
+        "output_tokens": 814
+      },
+      "4. Test Writing": {
+        "score": 100,
+        "latency_ms": 17426,
+        "cost_usd": 0.023091,
+        "input_tokens": 197,
+        "output_tokens": 1500
+      },
+      "5. Logic / Reasoning": {
+        "score": 100,
+        "latency_ms": 22316,
+        "cost_usd": 0.016467,
+        "input_tokens": 274,
+        "output_tokens": 1043
+      },
+      "6. Product Management": {
+        "score": 100,
+        "latency_ms": 26582,
+        "cost_usd": 0.02301,
+        "input_tokens": 170,
+        "output_tokens": 1500
+      },
+      "7. UX Design Critique": {
+        "score": 90,
+        "latency_ms": 34045,
+        "cost_usd": 0.023151,
+        "input_tokens": 217,
+        "output_tokens": 1500
+      }
+    },
+    "gpt-4o": {
+      "1. Document Extraction": {
+        "score": 100.0,
+        "latency_ms": 2054,
+        "cost_usd": 0.0023325,
+        "input_tokens": 193,
+        "output_tokens": 185
+      },
+      "2. Code Generation": {
+        "score": 100,
+        "latency_ms": 5611,
+        "cost_usd": 0.0063425,
+        "input_tokens": 117,
+        "output_tokens": 605
+      },
+      "3. Code Validation": {
+        "score": 85,
+        "latency_ms": 5869,
+        "cost_usd": 0.00872,
+        "input_tokens": 212,
+        "output_tokens": 819
+      },
+      "4. Test Writing": {
+        "score": 90,
+        "latency_ms": 8711,
+        "cost_usd": 0.00895,
+        "input_tokens": 176,
+        "output_tokens": 851
+      },
+      "5. Logic / Reasoning": {
+        "score": 80,
+        "latency_ms": 4014,
+        "cost_usd": 0.005565,
+        "input_tokens": 242,
+        "output_tokens": 496
+      },
+      "6. Product Management": {
+        "score": 90,
+        "latency_ms": 5579,
+        "cost_usd": 0.0051725,
+        "input_tokens": 161,
+        "output_tokens": 477
+      },
+      "7. UX Design Critique": {
+        "score": 75,
+        "latency_ms": 8746,
+        "cost_usd": 0.00693,
+        "input_tokens": 200,
+        "output_tokens": 643
+      }
+    },
+    "mistral-large-latest": {
+      "1. Document Extraction": {
+        "score": 100.0,
+        "latency_ms": 3284,
+        "cost_usd": 0.001718,
+        "input_tokens": 208,
+        "output_tokens": 217
+      },
+      "2. Code Generation": {
+        "score": 100,
+        "latency_ms": 10352,
+        "cost_usd": 0.004528,
+        "input_tokens": 119,
+        "output_tokens": 715
+      },
+      "3. Code Validation": {
+        "score": 70,
+        "latency_ms": 20383,
+        "cost_usd": 0.009424,
+        "input_tokens": 212,
+        "output_tokens": 1500
+      },
+      "4. Test Writing": {
+        "score": 90,
+        "latency_ms": 18378,
+        "cost_usd": 0.009348,
+        "input_tokens": 174,
+        "output_tokens": 1500
+      },
+      "5. Logic / Reasoning": {
+        "score": 100,
+        "latency_ms": 8357,
+        "cost_usd": 0.003612,
+        "input_tokens": 243,
+        "output_tokens": 521
+      },
+      "6. Product Management": {
+        "score": 100,
+        "latency_ms": 24093,
+        "cost_usd": 0.009094,
+        "input_tokens": 158,
+        "output_tokens": 1463
+      },
+      "7. UX Design Critique": {
+        "score": 75,
+        "latency_ms": 25891,
+        "cost_usd": 0.009408,
+        "input_tokens": 204,
+        "output_tokens": 1500
+      }
+    }
+  }
+}
