@@ -22,6 +22,15 @@ export type BackendStatus =
   | "approved"
   | "rejected";
 
+/** v0.2 state machine values emitted by the backend PackageListOut. */
+export type V2State =
+  | "submitted"
+  | "intake_complete"
+  | "under_review"
+  | "routed_for_approval"
+  | "decision_recorded"
+  | "exception_surfaced";
+
 export type UIState =
   | "submitted"
   | "intake_complete"
@@ -44,19 +53,23 @@ export interface PackageStateInfo {
 }
 
 /**
- * Maps a v0.1 backend status + optional confidence to a v0.2 UI state.
- * Decision call: pending_review without confidence is treated as intake_complete
- * (awaiting reviewer); with confidence < 0.5 → exception_surfaced.
+ * Maps a backend status/state + optional metadata to a v0.2 UI state.
  *
- * @param backendStatus  v0.1 backend status string
- * @param confidence     document-level classification confidence (0–1)
- * @param approver       name/email of approver (for decision states)
+ * Handles both v0.2 native states (from PackageListOut.state) and the
+ * legacy v0.1 status strings (from DocumentSummary.status) so that
+ * components remain compatible regardless of which API shape they receive.
+ *
+ * v0.2 states take priority over v0.1 legacy mappings.
+ *
+ * @param backendStatus  v0.2 state or v0.1 legacy status string from the API
+ * @param confidence     classification confidence (0–1); drives exception_surfaced
+ * @param approver       name/email of approver (for decision_recorded states)
  * @param decisionDate   ISO date of decision
  * @param reviewerName   name/email of reviewer currently holding the package
  * @param claimState     claim model state: unclaimed | claimed_by_you | claimed_by_other
  */
 export function resolvePackageState(
-  backendStatus: BackendStatus | string | null,
+  backendStatus: BackendStatus | V2State | string | null,
   confidence?: number | null,
   approver?: string | null,
   decisionDate?: string | null,
@@ -64,6 +77,117 @@ export function resolvePackageState(
   claimState?: ClaimState | null
 ): PackageStateInfo {
   switch (backendStatus) {
+    // ── v0.2 native states ─────────────────────────────────────────────────
+
+    case "submitted":
+      return {
+        uiState: "submitted",
+        pillLabel: "Package submitted",
+        pillTone: "neutral",
+        nextOwnerText: "Awaiting system intake",
+        nextOwnerDot: "neutral",
+      };
+
+    case "intake_complete":
+      return {
+        uiState: "intake_complete",
+        pillLabel: "Intake complete · awaiting reviewer",
+        pillTone: "neutral",
+        nextOwnerText: reviewerName ? `With ${reviewerName}` : "Awaiting reviewer",
+        nextOwnerDot: "neutral",
+      };
+
+    case "under_review": {
+      // Claim model (S1): drive pill copy from claim state when available
+      if (claimState === "unclaimed") {
+        return {
+          uiState: "unclaimed",
+          pillLabel: "Unclaimed · awaiting claim",
+          pillTone: "neutral",
+          nextOwnerText: "Unclaimed · awaiting claim",
+          nextOwnerDot: "neutral",
+          claimState: "unclaimed",
+        };
+      }
+      if (claimState === "claimed_by_you") {
+        return {
+          uiState: "under_review",
+          pillLabel: "Under review · claimed by you",
+          pillTone: "neutral",
+          nextOwnerText: "Under review (claimed by you)",
+          nextOwnerDot: "neutral",
+          claimState: "claimed_by_you",
+        };
+      }
+      if (claimState === "claimed_by_other") {
+        const holder = reviewerName ?? "reviewer";
+        return {
+          uiState: "under_review",
+          pillLabel: `Under review · with ${holder}`,
+          pillTone: "neutral",
+          nextOwnerText: `Under review · with ${holder}`,
+          nextOwnerDot: "neutral",
+          claimState: "claimed_by_other",
+        };
+      }
+      // No claim state provided: generic under_review
+      const holder = reviewerName ?? "reviewer";
+      return {
+        uiState: "under_review",
+        pillLabel: `Under review (claimed by ${holder})`,
+        pillTone: "neutral",
+        nextOwnerText: `Under review · with ${holder}`,
+        nextOwnerDot: "neutral",
+      };
+    }
+
+    case "routed_for_approval":
+      return {
+        uiState: "routed_for_approval",
+        pillLabel: "Routed for approval",
+        pillTone: "brass",
+        nextOwnerText: "Awaiting approver",
+        nextOwnerDot: "brass",
+      };
+
+    case "decision_recorded": {
+      // Backend sends a unified "decision_recorded" state; approver field carries the actor.
+      // We infer approved vs rejected from the presence/value of approver or fall back to approved.
+      const actor = approver ?? "approver";
+      const date = decisionDate ?? "";
+      // The `decision` field on PackageListOut carries "approved" | "rejected" — passed via approver arg
+      // when the caller maps pkg.decision → approver. Detect "Rejected" prefix as a convention.
+      const isRejected = actor.startsWith("Rejected:");
+      const cleanActor = isRejected ? actor.slice("Rejected:".length).trim() : actor;
+      if (isRejected) {
+        return {
+          uiState: "decision_recorded_rejected",
+          pillLabel: `Rejected · ${cleanActor}${date ? ` · ${date}` : ""}`,
+          pillTone: "negative",
+          nextOwnerText: `Decision recorded · Rejected by ${cleanActor}${date ? ` on ${date}` : ""}`,
+          nextOwnerDot: "neutral",
+        };
+      }
+      return {
+        uiState: "decision_recorded_approved",
+        pillLabel: `Decision recorded · Approved by ${cleanActor}${date ? ` · ${date}` : ""}`,
+        pillTone: "positive",
+        nextOwnerText: `Decision recorded · Approved by ${cleanActor}${date ? ` on ${date}` : ""}`,
+        nextOwnerDot: "neutral",
+      };
+    }
+
+    case "exception_surfaced":
+      return {
+        uiState: "exception_surfaced",
+        pillLabel: "Exception surfaced · review required",
+        pillTone: "amber",
+        nextOwnerText: "Awaiting reviewer — exception flagged",
+        nextOwnerDot: "amber",
+      };
+
+    // ── v0.1 legacy states (Phase A fallback) ─────────────────────────────
+
     case "pending_classification":
       return {
         uiState: "submitted",

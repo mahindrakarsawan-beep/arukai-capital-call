@@ -26,6 +26,19 @@ export type DocumentStatus =
   | "approved"
   | "rejected";
 
+/** v0.2 state machine values returned by GET /packages. */
+export type PackageState =
+  | "submitted"
+  | "intake_complete"
+  | "under_review"
+  | "routed_for_approval"
+  | "decision_recorded"
+  | "exception_surfaced";
+
+/**
+ * DocumentSummary — legacy shape for backward compatibility with
+ * the /documents endpoint. Prefer PackageListOut for new code.
+ */
 export interface DocumentSummary {
   id: string;
   filename: string;
@@ -33,6 +46,28 @@ export interface DocumentSummary {
   uploaded_at: string;
   status: DocumentStatus;
   confidence: number | null;
+  /** v0.2: present when the list endpoint returns PackageListOut shape. */
+  state?: PackageState | string;
+  title?: string | null;
+}
+
+/**
+ * PackageListOut — v0.2 list response shape from GET /packages.
+ * Drummer adds doc_type + confidence + lead_filename + decision as
+ * eagerly-loaded classification summary fields (Ticket 1).
+ */
+export interface PackageListOut {
+  id: string;
+  title: string;
+  state: PackageState | string;
+  version: string;
+  uploaded_at: string;
+  /** Eagerly-loaded from the first document's current classification (Ticket 1). */
+  doc_type: DocType | null;
+  confidence: number | null;
+  lead_filename: string | null;
+  /** Final approval decision — "approved" | "rejected" | null */
+  decision: string | null;
 }
 
 export interface Classification {
@@ -157,6 +192,25 @@ export async function getMe(token: string): Promise<User> {
 // Documents
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * List packages via the v0.2 GET /packages endpoint.
+ * Returns PackageListOut which includes doc_type, confidence, and state.
+ * Use this instead of listDocuments() for the operations console.
+ */
+export async function listPackages(
+  token: string
+): Promise<PackageListOut[]> {
+  const res = await fetch(`${API_BASE}/packages`, {
+    headers: buildHeaders(token),
+    cache: "no-store",
+  });
+  return handleResponse<PackageListOut[]>(res);
+}
+
+/**
+ * @deprecated Use listPackages() which hits the v0.2 /packages endpoint.
+ * Kept for backward compatibility with legacy /documents endpoint callers.
+ */
 export async function listDocuments(
   token: string
 ): Promise<DocumentSummary[]> {
