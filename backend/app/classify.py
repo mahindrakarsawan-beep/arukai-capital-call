@@ -1,163 +1,46 @@
-"""Haiku classification pipeline v0.2 (POR-147 / ARU-17-B1).
+"""Mistral Small classification pipeline v0.2 (POR-151 / POR-147 / ARU-17-B1).
 
-Changes from v0.1:
-- tool_use structured output for per-field confidence (S3, spec §4)
-- Per-doc-type schema: only capital_call_notice gets field extraction
-- Fallback: all fields populated with confidence 0.0 if tool_use fails
-- ClassificationResult now carries extracted_fields dict
+Changes from v0.1 (Haiku):
+- Primary provider: Mistral Small (mistral-small-latest) via JSON mode
+- Fallback provider: GPT-4o-mini (OpenAI) if Mistral fails
+- Final fallback: deterministic heuristic classification
+- provider_used field added to ClassificationResult
+- tool_use structured extraction kept; adapted to JSON mode (two-pass)
+- MISTRAL_API_KEY (primary) + OPENAI_API_KEY (fallback)
 """
 import io
 import json
 import os
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-import anthropic
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
-CLASSIFICATION_TIMEOUT = 15  # seconds (increased for tool_use)
+MISTRAL_MODEL = "mistral-small-latest"
+OPENAI_MODEL = "gpt-4o-mini"
+
+MISTRAL_ENDPOINT = "https://api.mistral.ai/v1/chat/completions"
+OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
+
+CLASSIFICATION_TIMEOUT = 15  # seconds
+
 CONFIDENCE_THRESHOLD = 0.5
 
-# Initialise client once (module-level)
-anthropic_client = (
-    anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-    if ANTHROPIC_API_KEY
-    else anthropic.AsyncAnthropic()
-)
-
 # ---------------------------------------------------------------------------
-# Tool definitions for structured extraction
+# Prompt structure (same semantics as Haiku tool_use version)
 # ---------------------------------------------------------------------------
 
-CLASSIFY_TOOL = {
-    "name": "classify_document",
-    "description": (
-        "Classify a financial document and extract key fields with per-field confidence scores."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "document_type": {
-                "type": "string",
-                "enum": [
-                    "capital_call_notice",
-                    "subscription_agreement",
-                    "side_letter",
-                    "k1",
-                    "wire_instructions",
-                    "other",
-                ],
-                "description": "The classified document type.",
-            },
-            "confidence": {
-                "type": "number",
-                "description": "Overall classification confidence score 0.0–1.0.",
-            },
-            "key_indicators": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Short phrases that led to the classification decision.",
-            },
-        },
-        "required": ["document_type", "confidence", "key_indicators"],
-    },
-}
-
-# v0.2 capital_call_notice field extraction tool (S3)
-CAPITAL_CALL_EXTRACT_TOOL = {
-    "name": "extract_capital_call_fields",
-    "description": (
-        "Extract structured fields from a capital call notice with per-field confidence."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "fund_name": {
-                "type": "object",
-                "properties": {
-                    "value": {"type": ["string", "null"]},
-                    "confidence": {"type": "number"},
-                    "source_text": {"type": ["string", "null"]},
-                },
-                "required": ["value", "confidence", "source_text"],
-            },
-            "call_number": {
-                "type": "object",
-                "properties": {
-                    "value": {"type": ["string", "null"]},
-                    "confidence": {"type": "number"},
-                    "source_text": {"type": ["string", "null"]},
-                },
-                "required": ["value", "confidence", "source_text"],
-            },
-            "amount_due": {
-                "type": "object",
-                "properties": {
-                    "value": {"type": ["string", "null"]},
-                    "confidence": {"type": "number"},
-                    "source_text": {"type": ["string", "null"]},
-                },
-                "required": ["value", "confidence", "source_text"],
-            },
-            "currency": {
-                "type": "object",
-                "properties": {
-                    "value": {"type": ["string", "null"]},
-                    "confidence": {"type": "number"},
-                    "source_text": {"type": ["string", "null"]},
-                },
-                "required": ["value", "confidence", "source_text"],
-            },
-            "due_date": {
-                "type": "object",
-                "properties": {
-                    "value": {"type": ["string", "null"]},
-                    "confidence": {"type": "number"},
-                    "source_text": {"type": ["string", "null"]},
-                },
-                "required": ["value", "confidence", "source_text"],
-            },
-            "recipient_entity": {
-                "type": "object",
-                "properties": {
-                    "value": {"type": ["string", "null"]},
-                    "confidence": {"type": "number"},
-                    "source_text": {"type": ["string", "null"]},
-                },
-                "required": ["value", "confidence", "source_text"],
-            },
-            "wire_instructions_present": {
-                "type": "object",
-                "properties": {
-                    "value": {"type": ["boolean", "null"]},
-                    "confidence": {"type": "number"},
-                    "source_text": {"type": ["string", "null"]},
-                },
-                "required": ["value", "confidence", "source_text"],
-            },
-            "notice_date": {
-                "type": "object",
-                "properties": {
-                    "value": {"type": ["string", "null"]},
-                    "confidence": {"type": "number"},
-                    "source_text": {"type": ["string", "null"]},
-                },
-                "required": ["value", "confidence", "source_text"],
-            },
-        },
-        "required": [
-            "fund_name",
-            "call_number",
-            "amount_due",
-            "currency",
-            "due_date",
-            "recipient_entity",
-            "wire_instructions_present",
-            "notice_date",
-        ],
-    },
+VALID_TYPES = {
+    "capital_call_notice",
+    "subscription_agreement",
+    "side_letter",
+    "k1",
+    "wire_instructions",
+    "other",
 }
 
 CAPITAL_CALL_FIELDS = [
@@ -171,7 +54,25 @@ CAPITAL_CALL_FIELDS = [
     "notice_date",
 ]
 
-SYSTEM_PROMPT = """You are a financial document classifier for a capital call management system.
+# JSON schema descriptions used inline in the prompt
+CLASSIFY_SCHEMA = json.dumps({
+    "document_type": "one of: capital_call_notice | subscription_agreement | side_letter | k1 | wire_instructions | other",
+    "confidence": "number 0.0–1.0",
+    "key_indicators": ["short phrase 1", "short phrase 2"],
+})
+
+EXTRACT_SCHEMA = json.dumps({
+    "fund_name": {"value": "string or null", "confidence": 0.95, "source_text": "string or null"},
+    "call_number": {"value": "string or null", "confidence": 0.0, "source_text": "string or null"},
+    "amount_due": {"value": "string or null", "confidence": 0.0, "source_text": "string or null"},
+    "currency": {"value": "string or null", "confidence": 0.0, "source_text": "string or null"},
+    "due_date": {"value": "string or null", "confidence": 0.0, "source_text": "string or null"},
+    "recipient_entity": {"value": "string or null", "confidence": 0.0, "source_text": "string or null"},
+    "wire_instructions_present": {"value": "boolean or null", "confidence": 0.0, "source_text": "string or null"},
+    "notice_date": {"value": "string or null", "confidence": 0.0, "source_text": "string or null"},
+})
+
+SYSTEM_PROMPT_CLASSIFY = f"""You are a financial document classifier for a capital call management system.
 
 Classify the document into exactly one of these six types:
 - capital_call_notice  (capital call / drawdown notices from fund managers)
@@ -181,17 +82,22 @@ Classify the document into exactly one of these six types:
 - wire_instructions  (bank wire / payment instructions)
 - other  (anything that does not clearly fit the above)
 
-Use the classify_document tool to return your result.
-If the document type is capital_call_notice, also use extract_capital_call_fields."""
+Respond ONLY with valid JSON matching this schema exactly (no markdown, no prose):
+{CLASSIFY_SCHEMA}"""
 
-VALID_TYPES = {
-    "capital_call_notice",
-    "subscription_agreement",
-    "side_letter",
-    "k1",
-    "wire_instructions",
-    "other",
-}
+SYSTEM_PROMPT_EXTRACT = f"""You are a financial document field extractor.
+
+Extract the following fields from the capital call notice. For each field provide:
+- value: the extracted value (string, boolean, or null if not found)
+- confidence: float 0.0–1.0 (your confidence in the extraction)
+- source_text: the exact snippet from the document, or null
+
+Respond ONLY with valid JSON matching this schema exactly (no markdown, no prose):
+{EXTRACT_SCHEMA}"""
+
+# ---------------------------------------------------------------------------
+# Heuristic fallback
+# ---------------------------------------------------------------------------
 
 _HEURISTIC_MAP = {
     "capital_call": "capital_call_notice",
@@ -227,148 +133,280 @@ def _empty_capital_call_fields(backfilled: bool = True, confidence: float = 0.0)
     }
 
 
+# ---------------------------------------------------------------------------
+# Result type
+# ---------------------------------------------------------------------------
+
 @dataclass
 class ClassificationResult:
     document_type: str = "other"
     confidence: float = 0.0
     key_indicators: list = field(default_factory=list)
     extracted_fields: Optional[dict] = None
-    model_version: str = HAIKU_MODEL
+    model_version: str = MISTRAL_MODEL
+    provider_used: str = "heuristic"
     fallback: bool = False
     classification_error: Optional[str] = None
     duration_ms: int = 0
 
 
-async def classify_document_text(text: str, filename: str = "") -> ClassificationResult:
-    """Classify document text via Claude Haiku with tool_use for structured output.
+# ---------------------------------------------------------------------------
+# HTTP helpers (urllib — no SDK dependency)
+# ---------------------------------------------------------------------------
 
-    Per S3: field extraction only runs for capital_call_notice.
-    Fallback: all fields populated with confidence 0.0 if tool_use fails.
-    """
-    start = time.monotonic()
-    truncated = text[:6000] if len(text) > 6000 else text
+def _post_json(url: str, headers: dict, payload: dict, timeout: int) -> dict:
+    """Synchronous JSON POST via urllib. Raises on HTTP errors."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
 
+
+def _chat(
+    endpoint: str,
+    api_key: str,
+    model: str,
+    messages: list[dict],
+    timeout: int,
+    response_format: Optional[dict] = None,
+) -> str:
+    """Send a chat completion request; return the assistant content string."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    payload: dict = {"model": model, "messages": messages}
+    if response_format:
+        payload["response_format"] = response_format
+
+    resp = _post_json(endpoint, headers, payload, timeout)
+    return resp["choices"][0]["message"]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Parse helpers
+# ---------------------------------------------------------------------------
+
+def _parse_classification(raw: str) -> Optional[dict]:
+    """Parse JSON classification response. Returns None on failure."""
     try:
-        # Single tool_use call: classify + conditionally extract fields
-        tools = [CLASSIFY_TOOL, CAPITAL_CALL_EXTRACT_TOOL]
+        # Strip markdown fences if present
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        data = json.loads(text)
+        if "document_type" not in data:
+            return None
+        return data
+    except (json.JSONDecodeError, KeyError):
+        return None
 
-        message = await anthropic_client.messages.create(
-            model=HAIKU_MODEL,
-            max_tokens=1024,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            tools=tools,
+
+def _parse_extraction(raw: str) -> Optional[dict]:
+    """Parse JSON extraction response. Returns None on failure."""
+    try:
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            return None
+        return data
+    except json.JSONDecodeError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Provider-level classify (single provider, sync inner calls)
+# ---------------------------------------------------------------------------
+
+def _classify_with_provider(
+    endpoint: str,
+    api_key: str,
+    model: str,
+    text: str,
+    filename: str,
+    timeout: int,
+) -> tuple[dict, Optional[dict]]:
+    """Call one provider; return (clf_data, extract_data_or_None).
+    Raises on any error so caller can fall through to next provider.
+    """
+    truncated = text[:6000] if len(text) > 6000 else text
+    user_content = f"Document filename: {filename}\n\nDocument text:\n{truncated}"
+
+    # Pass 1: classify
+    clf_raw = _chat(
+        endpoint=endpoint,
+        api_key=api_key,
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT_CLASSIFY},
+            {"role": "user", "content": user_content},
+        ],
+        timeout=timeout,
+        response_format={"type": "json_object"},
+    )
+
+    clf_data = _parse_classification(clf_raw)
+    if clf_data is None:
+        raise ValueError(f"Failed to parse classification JSON from {model}: {clf_raw[:200]}")
+
+    doc_type = clf_data.get("document_type", "other")
+    if doc_type not in VALID_TYPES:
+        doc_type = "other"
+        clf_data["document_type"] = doc_type
+
+    # Pass 2: extract fields only for capital_call_notice
+    extract_data: Optional[dict] = None
+    if doc_type == "capital_call_notice":
+        ext_raw = _chat(
+            endpoint=endpoint,
+            api_key=api_key,
+            model=model,
             messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Document filename: {filename}\n\nDocument text:\n{truncated}"
-                    ),
-                }
+                {"role": "system", "content": SYSTEM_PROMPT_EXTRACT},
+                {"role": "user", "content": user_content},
             ],
-            timeout=CLASSIFICATION_TIMEOUT,
+            timeout=timeout,
+            response_format={"type": "json_object"},
         )
+        extract_data = _parse_extraction(ext_raw)
 
-        # Extract tool_use results
-        clf_result = None
-        extract_result = None
+    return clf_data, extract_data
 
-        for block in message.content:
-            if block.type == "tool_use":
-                if block.name == "classify_document":
-                    clf_result = block.input
-                elif block.name == "extract_capital_call_fields":
-                    extract_result = block.input
 
-        if clf_result is None:
-            # Tool_use did not fire — try text fallback
-            raise ValueError("No classify_document tool call in response")
+# ---------------------------------------------------------------------------
+# Build extracted_fields dict from raw parse
+# ---------------------------------------------------------------------------
 
-        doc_type = clf_result.get("document_type", "other")
-        confidence = float(clf_result.get("confidence", 0.0))
-        indicators = clf_result.get("key_indicators", [])
+def _build_extracted_fields(extract_data: Optional[dict]) -> Optional[dict]:
+    """Normalise extraction response into our internal format."""
+    if extract_data is None:
+        return _empty_capital_call_fields(backfilled=False, confidence=0.0)
 
-        if doc_type not in VALID_TYPES:
-            doc_type = "other"
-            confidence = 0.0
+    extracted_fields: dict = {}
+    for fname in CAPITAL_CALL_FIELDS:
+        fdata = extract_data.get(fname, {})
+        if isinstance(fdata, dict):
+            extracted_fields[fname] = {
+                "value": fdata.get("value"),
+                "confidence": float(fdata.get("confidence", 0.0)),
+                "source_text": fdata.get("source_text"),
+                "backfilled": False,
+            }
+        else:
+            extracted_fields[fname] = {
+                "value": None,
+                "confidence": 0.0,
+                "source_text": None,
+                "backfilled": False,
+            }
+    return extracted_fields
 
-        duration_ms = int((time.monotonic() - start) * 1000)
 
-        # Build extracted_fields only for capital_call_notice (S3)
-        extracted_fields: Optional[dict] = None
-        if doc_type == "capital_call_notice":
-            if extract_result:
-                # Attach backfilled=False to each field
-                extracted_fields = {
-                    fname: {
-                        "value": fdata.get("value"),
-                        "confidence": float(fdata.get("confidence", 0.0)),
-                        "source_text": fdata.get("source_text"),
-                        "backfilled": False,
-                    }
-                    for fname, fdata in extract_result.items()
-                    if fname in CAPITAL_CALL_FIELDS
-                }
-                # Ensure all required fields present
-                for fname in CAPITAL_CALL_FIELDS:
-                    if fname not in extracted_fields:
-                        extracted_fields[fname] = {
-                            "value": None,
-                            "confidence": 0.0,
-                            "source_text": None,
-                            "backfilled": False,
-                        }
-            else:
-                # Extraction tool did not fire — populate with zeros
-                extracted_fields = _empty_capital_call_fields(backfilled=False, confidence=0.0)
+# ---------------------------------------------------------------------------
+# Main async entry point
+# ---------------------------------------------------------------------------
 
-        if confidence < CONFIDENCE_THRESHOLD:
-            heuristic_type = _heuristic_type(filename, text)
-            # If heuristic suggests capital_call_notice, keep extracted_fields (with zeros)
-            if heuristic_type == "capital_call_notice" and extracted_fields is None:
-                extracted_fields = _empty_capital_call_fields(backfilled=False, confidence=0.0)
+async def classify_document_text(text: str, filename: str = "") -> ClassificationResult:
+    """Classify document text via Mistral Small → OpenAI GPT-4o-mini → heuristic fallback.
+
+    Both AI calls are synchronous HTTP (urllib) wrapped in async function.
+    Two passes per provider: classify first, then extract fields for capital_call_notice.
+    """
+    import asyncio
+
+    start = time.monotonic()
+
+    # Build provider chain
+    providers: list[tuple[str, str, str, str]] = []
+    if MISTRAL_API_KEY:
+        providers.append((MISTRAL_ENDPOINT, MISTRAL_API_KEY, MISTRAL_MODEL, "mistral"))
+    if OPENAI_API_KEY:
+        providers.append((OPENAI_ENDPOINT, OPENAI_API_KEY, OPENAI_MODEL, "openai"))
+
+    last_error: Optional[str] = None
+
+    for endpoint, api_key, model, provider_name in providers:
+        try:
+            # Run synchronous HTTP in thread pool to keep async-friendly
+            loop = asyncio.get_event_loop()
+            clf_data, extract_data = await loop.run_in_executor(
+                None,
+                _classify_with_provider,
+                endpoint,
+                api_key,
+                model,
+                text,
+                filename,
+                CLASSIFICATION_TIMEOUT,
+            )
+
+            doc_type = clf_data.get("document_type", "other")
+            confidence = float(clf_data.get("confidence", 0.0))
+            indicators = clf_data.get("key_indicators", [])
+            duration_ms = int((time.monotonic() - start) * 1000)
+
+            # Build extracted_fields for capital_call_notice
+            extracted_fields: Optional[dict] = None
+            if doc_type == "capital_call_notice":
+                extracted_fields = _build_extracted_fields(extract_data)
+
+            if confidence < CONFIDENCE_THRESHOLD:
+                heuristic_type = _heuristic_type(filename, text)
+                if heuristic_type == "capital_call_notice" and extracted_fields is None:
+                    extracted_fields = _empty_capital_call_fields(backfilled=False, confidence=0.0)
+                return ClassificationResult(
+                    document_type=heuristic_type,
+                    confidence=confidence,
+                    key_indicators=indicators,
+                    extracted_fields=extracted_fields,
+                    model_version=model,
+                    provider_used=provider_name,
+                    fallback=True,
+                    classification_error=f"Low confidence ({confidence:.2f}); heuristic applied",
+                    duration_ms=duration_ms,
+                )
+
             return ClassificationResult(
-                document_type=heuristic_type,
+                document_type=doc_type,
                 confidence=confidence,
                 key_indicators=indicators,
                 extracted_fields=extracted_fields,
-                model_version=HAIKU_MODEL,
-                fallback=True,
-                classification_error=f"Low confidence ({confidence:.2f}); heuristic applied",
+                model_version=model,
+                provider_used=provider_name,
+                fallback=False,
                 duration_ms=duration_ms,
             )
 
-        return ClassificationResult(
-            document_type=doc_type,
-            confidence=confidence,
-            key_indicators=indicators,
-            extracted_fields=extracted_fields,
-            model_version=HAIKU_MODEL,
-            fallback=False,
-            duration_ms=duration_ms,
-        )
+        except Exception as exc:
+            last_error = f"{provider_name}: {exc}"
+            continue  # Try next provider
 
-    except Exception as exc:
-        duration_ms = int((time.monotonic() - start) * 1000)
-        heuristic_type = _heuristic_type(filename, text)
-        # Fallback: all fields with confidence 0.0 for capital_call_notice
-        extracted_fields = None
-        if heuristic_type == "capital_call_notice":
-            extracted_fields = _empty_capital_call_fields(backfilled=False, confidence=0.0)
-        return ClassificationResult(
-            document_type=heuristic_type,
-            confidence=0.0,
-            extracted_fields=extracted_fields,
-            fallback=True,
-            classification_error=str(exc),
-            duration_ms=duration_ms,
-        )
+    # All providers failed — heuristic fallback
+    duration_ms = int((time.monotonic() - start) * 1000)
+    heuristic_type = _heuristic_type(filename, text)
+    extracted_fields = None
+    if heuristic_type == "capital_call_notice":
+        extracted_fields = _empty_capital_call_fields(backfilled=False, confidence=0.0)
 
+    return ClassificationResult(
+        document_type=heuristic_type,
+        confidence=0.0,
+        extracted_fields=extracted_fields,
+        model_version="heuristic",
+        provider_used="heuristic",
+        fallback=True,
+        classification_error=last_error,
+        duration_ms=duration_ms,
+    )
+
+
+# ---------------------------------------------------------------------------
+# PDF text extraction (unchanged)
+# ---------------------------------------------------------------------------
 
 def extract_pdf_text(content: bytes) -> str:
     """Extract text layer from PDF bytes using pypdf. Returns empty string on error."""
@@ -378,9 +416,9 @@ def extract_pdf_text(content: bytes) -> str:
         reader = pypdf.PdfReader(io.BytesIO(content))
         parts = []
         for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                parts.append(text)
+            page_text = page.extract_text()
+            if page_text:
+                parts.append(page_text)
         return "\n".join(parts)
     except Exception:
         return ""

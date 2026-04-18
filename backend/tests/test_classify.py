@@ -1,7 +1,7 @@
-"""TDD: Classification pipeline tests v0.2 — mock Anthropic tool_use, fallback."""
+"""TDD: Classification pipeline tests v0.2 — mock Mistral HTTP calls, fallback."""
 import io
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,34 +9,24 @@ from fastapi.testclient import TestClient
 from app.classify import classify_document_text, ClassificationResult
 
 
-def _make_tool_use_block(name: str, input_data: dict):
-    """Create a mock tool_use content block."""
-    block = MagicMock()
-    block.type = "tool_use"
-    block.name = name
-    block.input = input_data
-    return block
-
-
-def _make_message(blocks: list):
-    msg = MagicMock()
-    msg.content = blocks
-    return msg
-
-
 # ---------------------------------------------------------------------------
-# Unit tests for classify_document_text()
+# Helpers — mock _classify_with_provider (the synchronous inner worker)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_classify_happy_path():
-    """Tool_use returns valid result → classification populated."""
-    clf_block = _make_tool_use_block("classify_document", {
-        "document_type": "capital_call_notice",
-        "confidence": 0.94,
-        "key_indicators": ["capital call", "Q2 2026"],
-    })
-    extract_block = _make_tool_use_block("extract_capital_call_fields", {
+def _make_clf_data(
+    doc_type: str = "capital_call_notice",
+    confidence: float = 0.94,
+    indicators: list | None = None,
+) -> dict:
+    return {
+        "document_type": doc_type,
+        "confidence": confidence,
+        "key_indicators": indicators or ["capital call", "Q2 2026"],
+    }
+
+
+def _make_extract_data() -> dict:
+    return {
         "fund_name": {"value": "Fund III", "confidence": 0.95, "source_text": "Fund III"},
         "call_number": {"value": "Q2-2026", "confidence": 0.88, "source_text": "Q2-2026"},
         "amount_due": {"value": None, "confidence": 0.0, "source_text": None},
@@ -45,54 +35,62 @@ async def test_classify_happy_path():
         "recipient_entity": {"value": None, "confidence": 0.0, "source_text": None},
         "wire_instructions_present": {"value": False, "confidence": 0.7, "source_text": None},
         "notice_date": {"value": None, "confidence": 0.0, "source_text": None},
-    })
+    }
 
-    mock_msg = _make_message([clf_block, extract_block])
 
-    with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_msg)
+# ---------------------------------------------------------------------------
+# Unit tests for classify_document_text()
+# ---------------------------------------------------------------------------
 
-        result = await classify_document_text(
-            text="Capital Call Notice Q2 2026 from Meridian Fund III",
-            filename="capital_call.pdf",
-        )
+@pytest.mark.asyncio
+async def test_classify_happy_path():
+    """Mistral returns valid result → classification populated."""
+    clf_data = _make_clf_data()
+    extract_data = _make_extract_data()
+
+    with patch("app.classify._classify_with_provider", return_value=(clf_data, extract_data)):
+        with patch("app.classify.MISTRAL_API_KEY", "test-key"):
+            result = await classify_document_text(
+                text="Capital Call Notice Q2 2026 from Meridian Fund III",
+                filename="capital_call.pdf",
+            )
 
     assert result.document_type == "capital_call_notice"
     assert result.confidence == pytest.approx(0.94)
     assert result.fallback is False
     assert result.classification_error is None
+    assert result.provider_used in ("mistral", "openai")
 
 
 @pytest.mark.asyncio
 async def test_classify_fallback_on_api_error():
-    """If Anthropic raises, fallback fires — no crash."""
-    with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(side_effect=Exception("API unavailable"))
-
-        result = await classify_document_text(
-            text="Some document text",
-            filename="unknown.pdf",
-        )
+    """If all providers fail, heuristic fires — no crash."""
+    with patch("app.classify.MISTRAL_API_KEY", "test-key"):
+        with patch("app.classify.OPENAI_API_KEY", ""):
+            with patch("app.classify._classify_with_provider", side_effect=Exception("API unavailable")):
+                result = await classify_document_text(
+                    text="Some document text",
+                    filename="unknown.pdf",
+                )
 
     assert result.fallback is True
     assert result.document_type == "other"
     assert result.confidence == 0.0
     assert result.classification_error is not None
+    assert result.provider_used == "heuristic"
 
 
 @pytest.mark.asyncio
 async def test_classify_fallback_on_invalid_json():
-    """If tool_use returns no classify_document block, fallback fires."""
-    # Return a message with no tool_use blocks
-    mock_msg = _make_message([])
-
-    with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_msg)
-
-        result = await classify_document_text(
-            text="Some document text",
-            filename="doc.pdf",
-        )
+    """If provider raises ValueError on bad JSON, fallback fires."""
+    with patch("app.classify.MISTRAL_API_KEY", "test-key"):
+        with patch("app.classify.OPENAI_API_KEY", ""):
+            with patch("app.classify._classify_with_provider",
+                       side_effect=ValueError("Failed to parse JSON")):
+                result = await classify_document_text(
+                    text="Some document text",
+                    filename="doc.pdf",
+                )
 
     assert result.fallback is True
     assert result.document_type in (
@@ -104,20 +102,14 @@ async def test_classify_fallback_on_invalid_json():
 @pytest.mark.asyncio
 async def test_classify_low_confidence_uses_heuristic():
     """Low confidence (<0.5) triggers heuristic fallback."""
-    clf_block = _make_tool_use_block("classify_document", {
-        "document_type": "other",
-        "confidence": 0.3,
-        "key_indicators": [],
-    })
-    mock_msg = _make_message([clf_block])
+    clf_data = _make_clf_data(doc_type="other", confidence=0.3, indicators=[])
 
-    with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_msg)
-
-        result = await classify_document_text(
-            text="capital call notice fund investment",
-            filename="capital_call_q2.pdf",
-        )
+    with patch("app.classify.MISTRAL_API_KEY", "test-key"):
+        with patch("app.classify._classify_with_provider", return_value=(clf_data, None)):
+            result = await classify_document_text(
+                text="capital call notice fund investment",
+                filename="capital_call_q2.pdf",
+            )
 
     assert result is not None
     assert result.fallback is True
@@ -126,20 +118,18 @@ async def test_classify_low_confidence_uses_heuristic():
 @pytest.mark.asyncio
 async def test_classify_subscription_document():
     """Correctly identifies subscription agreement."""
-    clf_block = _make_tool_use_block("classify_document", {
-        "document_type": "subscription_agreement",
-        "confidence": 0.88,
-        "key_indicators": ["subscription", "investor", "limited partnership"],
-    })
-    mock_msg = _make_message([clf_block])
+    clf_data = _make_clf_data(
+        doc_type="subscription_agreement",
+        confidence=0.88,
+        indicators=["subscription", "investor", "limited partnership"],
+    )
 
-    with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_msg)
-
-        result = await classify_document_text(
-            text="Subscription Agreement for Meridian Fund III LP",
-            filename="subscription.pdf",
-        )
+    with patch("app.classify.MISTRAL_API_KEY", "test-key"):
+        with patch("app.classify._classify_with_provider", return_value=(clf_data, None)):
+            result = await classify_document_text(
+                text="Subscription Agreement for Meridian Fund III LP",
+                filename="subscription.pdf",
+            )
 
     assert result.document_type == "subscription_agreement"
     assert result.confidence > 0.5
@@ -175,33 +165,20 @@ def test_upload_stores_classification(client: TestClient):
     """After upload, classification is attached to the package."""
     token = _login(client, "admin@arukai.example", "admin123")
 
-    clf_block = _make_tool_use_block("classify_document", {
-        "document_type": "capital_call_notice",
-        "confidence": 0.91,
-        "key_indicators": ["capital call"],
-    })
-    extract_block = _make_tool_use_block("extract_capital_call_fields", {
-        "fund_name": {"value": "Fund X", "confidence": 0.9, "source_text": "Fund X"},
-        "call_number": {"value": "Q1", "confidence": 0.8, "source_text": "Q1"},
-        "amount_due": {"value": None, "confidence": 0.0, "source_text": None},
-        "currency": {"value": "USD", "confidence": 1.0, "source_text": "USD"},
-        "due_date": {"value": None, "confidence": 0.0, "source_text": None},
-        "recipient_entity": {"value": None, "confidence": 0.0, "source_text": None},
-        "wire_instructions_present": {"value": False, "confidence": 0.7, "source_text": None},
-        "notice_date": {"value": None, "confidence": 0.0, "source_text": None},
-    })
-    mock_msg = _make_message([clf_block, extract_block])
+    clf_data = _make_clf_data(confidence=0.91, indicators=["capital call"])
+    extract_data = _make_extract_data()
+    extract_data["fund_name"] = {"value": "Fund X", "confidence": 0.9, "source_text": "Fund X"}
+    extract_data["call_number"] = {"value": "Q1", "confidence": 0.8, "source_text": "Q1"}
 
-    with patch("app.classify.anthropic_client") as mock_client:
-        mock_client.messages.create = AsyncMock(return_value=mock_msg)
-
-        pdf = io.BytesIO(_make_pdf_bytes())
-        resp = client.post(
-            "/documents/upload",
-            data={"title": "Classify Integration Test"},
-            files={"file": ("capital.pdf", pdf, "application/pdf")},
-            headers={"Authorization": f"Bearer {token}"},
-        )
+    with patch("app.classify.MISTRAL_API_KEY", "test-key"):
+        with patch("app.classify._classify_with_provider", return_value=(clf_data, extract_data)):
+            pdf = io.BytesIO(_make_pdf_bytes())
+            resp = client.post(
+                "/documents/upload",
+                data={"title": "Classify Integration Test"},
+                files={"file": ("capital.pdf", pdf, "application/pdf")},
+                headers={"Authorization": f"Bearer {token}"},
+            )
 
     assert resp.status_code == 201
     pkg_id = resp.json()["id"]

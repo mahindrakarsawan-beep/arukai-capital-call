@@ -440,55 +440,54 @@ class TestBug7UploadSendsTitleField:
 
 
 # ---------------------------------------------------------------------------
-# BUG-8: Haiku model ID is correct
+# BUG-8 (updated POR-151): Mistral Small is the production model
+# Haiku was superseded per AI benchmark scorecard (squad-lessons-ai-benchmark.md).
+# Production pipeline now uses mistral-small-latest with OpenAI gpt-4o-mini fallback.
 # ---------------------------------------------------------------------------
 
 class TestBug8HaikuModelId:
     """
-    BUG-8: The wrong model ID was passed to Anthropic API calls, causing
-    model-not-found errors that silently fell back and produced wrong results.
-    Correct ID: claude-haiku-4-5-20251001
+    BUG-8 (updated POR-151): Provider switched from Claude Haiku to Mistral Small.
+    Benchmark: Mistral Small wins on cost ($0.13/1K docs vs $2.03 for Haiku).
+    Primary: mistral-small-latest  Fallback: gpt-4o-mini
     """
 
-    EXPECTED_MODEL_ID = "claude-haiku-4-5-20251001"
+    EXPECTED_MODEL_ID = "mistral-small-latest"
     CLASSIFY_MODULE = Path("/home/sawan/arukai-capital-call/backend/app/classify.py")
 
     def test_classify_module_uses_correct_model_id(self):
-        """classify.py must define HAIKU_MODEL = 'claude-haiku-4-5-20251001'."""
+        """classify.py must define MISTRAL_MODEL = 'mistral-small-latest' (POR-151)."""
         assert self.CLASSIFY_MODULE.exists(), f"classify.py not found at {self.CLASSIFY_MODULE}"
         src = self.CLASSIFY_MODULE.read_text()
         assert f'"{self.EXPECTED_MODEL_ID}"' in src or f"'{self.EXPECTED_MODEL_ID}'" in src, (
-            f"BUG-8 REGRESSION: Model ID '{self.EXPECTED_MODEL_ID}' not found in classify.py. "
-            "Check HAIKU_MODEL constant."
+            f"POR-151: Model ID '{self.EXPECTED_MODEL_ID}' not found in classify.py. "
+            "Check MISTRAL_MODEL constant."
         )
 
     def test_haiku_model_constant_imported_correctly(self):
-        """Import classify module and verify HAIKU_MODEL value matches spec."""
-        import importlib.util
+        """classify.py must define MISTRAL_MODEL (not HAIKU_MODEL) as the primary constant."""
         spec_path = self.CLASSIFY_MODULE
-        spec = importlib.util.spec_from_file_location("classify_check", spec_path)
-        module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-        # Don't execute (would try to init anthropic client) — just grep the source
         src = spec_path.read_text()
-        # Extract HAIKU_MODEL = "..." assignment
-        match = re.search(r'HAIKU_MODEL\s*=\s*["\']([^"\']+)["\']', src)
-        assert match, "BUG-8 REGRESSION: Could not find HAIKU_MODEL assignment in classify.py"
+        # Extract MISTRAL_MODEL = "..." assignment
+        match = re.search(r'MISTRAL_MODEL\s*=\s*["\']([^"\']+)["\']', src)
+        assert match, "POR-151: Could not find MISTRAL_MODEL assignment in classify.py"
         actual = match.group(1)
         assert actual == self.EXPECTED_MODEL_ID, (
-            f"BUG-8 REGRESSION: HAIKU_MODEL is '{actual}', expected '{self.EXPECTED_MODEL_ID}'."
+            f"POR-151: MISTRAL_MODEL is '{actual}', expected '{self.EXPECTED_MODEL_ID}'."
         )
 
     def test_no_old_model_id_in_classify(self):
-        """No deprecated model IDs (claude-haiku-20240307 etc.) in classify.py."""
+        """No deprecated/old model IDs (Haiku, claude-instant, etc.) in classify.py."""
         src = self.CLASSIFY_MODULE.read_text()
         banned_ids = [
             "claude-haiku-20240307",
             "claude-3-haiku",
             "claude-3-haiku-20240307",
             "claude-instant",
+            "claude-haiku-4-5-20251001",
         ]
         for banned in banned_ids:
             assert banned not in src, (
-                f"BUG-8 REGRESSION: Deprecated model ID '{banned}' found in classify.py. "
-                "Update to claude-haiku-4-5-20251001."
+                f"POR-151: Deprecated model ID '{banned}' found in classify.py. "
+                "Production model is mistral-small-latest."
             )

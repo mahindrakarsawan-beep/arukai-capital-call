@@ -103,6 +103,7 @@ class PackageListOut(BaseModel):
     doc_type: Optional[str] = None
     confidence: Optional[float] = None
     filename: Optional[str] = None  # from first document
+    ai_summary: Optional[str] = None  # one-line AI intelligence summary
 
     model_config = {"from_attributes": True}
 
@@ -135,6 +136,11 @@ class PackageDetailOut(PackageOut):
     review_notes: list[ReviewNoteOut] = []
     audit_trail: list[AuditEventOut] = []
     approval: Optional[ApprovalOut] = None
+    # AI analysis fields surfaced from first document's current classification
+    extracted_fields: Optional[dict] = None
+    classification_reasoning: Optional[str] = None
+    model_used: Optional[str] = None
+    classification_duration_ms: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +175,41 @@ def _get_current_classification(doc: Document) -> Optional[Classification]:
     for clf in doc.classifications:
         if clf.is_current:
             return clf
+    return None
+
+
+def _build_ai_summary(clf: Optional[Classification]) -> str:
+    """Generate a one-line AI intelligence summary from a classification record."""
+    if not clf:
+        return "Awaiting classification"
+    parts = [clf.document_type.replace("_", " ").title()]
+    fields = clf.extracted_fields or {}
+    if "amount_due" in fields and isinstance(fields["amount_due"], dict):
+        val = fields["amount_due"].get("value")
+        if val:
+            parts.append(str(val))
+    if "due_date" in fields and isinstance(fields["due_date"], dict):
+        val = fields["due_date"].get("value")
+        if val:
+            parts.append(f"due {val}")
+    parts.append(f"{int(clf.confidence * 100)}% confidence")
+    flagged = sum(
+        1 for f in fields.values()
+        if isinstance(f, dict) and f.get("confidence", 1) < 0.5
+    )
+    parts.append(f"{flagged} flagged" if flagged else "0 flags")
+    return " · ".join(parts)
+
+
+def _build_classification_reasoning(clf: Optional[Classification]) -> Optional[str]:
+    """Compose a natural-language reasoning string from key_indicators."""
+    if not clf:
+        return None
+    indicators = clf.key_indicators
+    if not indicators:
+        return None
+    if isinstance(indicators, list) and len(indicators) > 0:
+        return "Classified based on: " + "; ".join(str(i) for i in indicators[:5])
     return None
 
 
@@ -345,6 +386,7 @@ async def list_packages(
         confidence: Optional[float] = None
         filename: Optional[str] = None
 
+        clf = None
         if pkg.documents:
             first_doc = pkg.documents[0]
             filename = first_doc.filename
@@ -368,6 +410,7 @@ async def list_packages(
                 doc_type=doc_type,
                 confidence=confidence,
                 filename=filename,
+                ai_summary=_build_ai_summary(clf),
             )
         )
 
@@ -431,6 +474,11 @@ async def get_package(
     final_approval = next((a for a in pkg.approvals if a.is_final), None)
     approval_out = ApprovalOut.model_validate(final_approval) if final_approval else None
 
+    # AI fields from first document's current classification
+    first_clf: Optional[Classification] = None
+    if pkg.documents:
+        first_clf = _get_current_classification(pkg.documents[0])
+
     return PackageDetailOut(
         id=pkg.id,
         title=pkg.title,
@@ -448,6 +496,10 @@ async def get_package(
         review_notes=notes_out,
         audit_trail=audit_out,
         approval=approval_out,
+        extracted_fields=first_clf.extracted_fields if first_clf else None,
+        classification_reasoning=_build_classification_reasoning(first_clf),
+        model_used=first_clf.model_version if first_clf else None,
+        classification_duration_ms=None,  # duration_ms not stored in DB, available at classify time
     )
 
 
