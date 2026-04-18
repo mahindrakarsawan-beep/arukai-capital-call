@@ -20,6 +20,21 @@ body {
   font-family: 'DM Sans', system-ui, sans-serif;
 }
 
+/* Explicit utility classes for Cormorant (display) and DM Sans (interface) */
+.font-display { font-family: 'Cormorant Garamond', 'Cormorant', Georgia, serif; }
+.font-interface { font-family: 'DM Sans', system-ui, sans-serif; }
+
+/* Premium card surface — bone background, hairline border, generous radius */
+.card-surface {
+  background-color: #FAFAF8;
+  border: 1px solid rgba(13,15,18,0.1);
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+
+/* Section gap — increased spacing rhythm (24/32px scale) */
+.section-gap { margin-bottom: 2.5rem; }
+
 @layer components {
   .card {
     background-color: var(--bg-bone);

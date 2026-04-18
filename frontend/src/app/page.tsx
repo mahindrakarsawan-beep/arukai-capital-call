@@ -22,7 +22,7 @@ export default function LoginPage() {
 
   return (
     <main
-      className="flex min-h-screen flex-col items-center justify-center px-4"
+      className="flex min-h-screen flex-col items-center justify-center px-4 py-24"
       style={{ backgroundColor: "#0D0F12" }}
     >
       {/* Wordmark — top third */}
@@ -37,14 +37,15 @@ export default function LoginPage() {
 
       {/* Auth card — bgBone surface per spec §8.2 */}
       <div
-        className="w-full rounded-[16px] border p-8 shadow-sm"
+        className="w-full rounded-[24px] border p-8 md:p-10"
         style={{
-          maxWidth: "400px",
+          maxWidth: "448px",
           backgroundColor: "#FAFAF8",
           borderColor: "rgba(26,31,40,0.10)",
+          boxShadow: "0 4px 24px 0 rgba(0,0,0,0.18), 0 1px 4px 0 rgba(0,0,0,0.10)",
         }}
       >
-        <h2 className="mb-1 font-display text-xl font-light text-fg-obsidian tracking-tight">
+        <h2 className="mb-1 font-display text-2xl font-light text-fg-obsidian tracking-tight">
           Authorized access
         </h2>
         <p className="mb-6 font-interface text-sm text-fg-muted">

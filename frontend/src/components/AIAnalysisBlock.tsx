@@ -114,15 +114,22 @@ function ExceptionCallout({ fieldName, confidence }: ExceptionCalloutProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function AIAnalysisBlock({ classification, analysedAt }: AIAnalysisBlockProps) {
+  // Defensive destructure: API may return null for optional fields on packages
+  // classified before POR-151 shipped (old Haiku pipeline). Never crash on null.
   const {
     doc_type,
     confidence,
-    key_indicators = [],
     extracted_fields,
     classification_reasoning,
     model_version,
     duration_ms,
   } = classification;
+
+  // key_indicators may be null from old API responses even though the type says string[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const key_indicators: string[] = Array.isArray((classification as any).key_indicators)
+    ? (classification as any).key_indicators
+    : [];
 
   // Reasoning: prefer server-generated, fall back to key_indicators synthesis
   const reasoning =
@@ -151,13 +158,16 @@ export function AIAnalysisBlock({ classification, analysedAt }: AIAnalysisBlockP
   const attributionLine = attributionParts.join(" · ");
 
   // Build field rows — sort for deterministic order
-  const fieldEntries = extracted_fields
-    ? Object.entries(extracted_fields).sort(([a], [b]) => a.localeCompare(b))
+  // Guard: extracted_fields must be a non-null object; individual fields must have numeric confidence
+  const fieldEntries = extracted_fields && typeof extracted_fields === "object"
+    ? Object.entries(extracted_fields)
+        .filter(([, field]) => field != null && typeof field.confidence === "number")
+        .sort(([a], [b]) => a.localeCompare(b))
     : [];
 
   // Exception fields: confidence < 0.5
   const exceptionFields = fieldEntries.filter(
-    ([, field]) => field.confidence < 0.5
+    ([, field]) => typeof field.confidence === "number" && field.confidence < 0.5
   );
 
   // Fallback overall confidence badge value
@@ -166,7 +176,7 @@ export function AIAnalysisBlock({ classification, analysedAt }: AIAnalysisBlockP
   return (
     <div
       data-testid="ai-analysis-block"
-      className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm"
+      className="rounded-lg border border-border-hairline bg-bg-parchment p-5 shadow-sm"
       style={{
         borderLeft: "3px solid rgba(184,145,78,0.35)",
       }}
@@ -218,7 +228,7 @@ export function AIAnalysisBlock({ classification, analysedAt }: AIAnalysisBlockP
                 <div
                   key={key}
                   data-testid={`field-row-${key}`}
-                  className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 px-3 py-2 bg-bg-bone"
+                  className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 px-3 py-2.5 bg-bg-bone"
                 >
                   {/* Field name */}
                   <span className="font-interface text-xs font-medium uppercase tracking-widest text-fg-muted flex-shrink-0 sm:w-36 pt-0.5">
@@ -278,11 +288,11 @@ export function AIAnalysisBlock({ classification, analysedAt }: AIAnalysisBlockP
         </div>
       )}
 
-      {/* ── Model attribution footer ─────────────────────────────────── */}
-      <div className="pt-3 border-t border-border-hairline">
+      {/* ── Model attribution footer — quiet, not prominent ────────────── */}
+      <div className="pt-2 border-t border-border-hairline">
         <p
           data-testid="model-attribution"
-          className="font-interface text-xs text-fg-muted"
+          className="font-interface text-[10px] text-fg-muted opacity-70"
         >
           {attributionLine}
         </p>

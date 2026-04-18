@@ -96,7 +96,7 @@ export default async function DocumentDetailPage({ params }: Props) {
     <div className="flex min-h-screen flex-col">
       <TopNav user={user} />
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
+      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-10 md:py-14">
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 font-interface text-sm text-fg-muted">
           <Link
@@ -141,7 +141,7 @@ export default async function DocumentDetailPage({ params }: Props) {
         </div>
 
         {/* 5-block grid: 2×2 ≥lg (AI Analysis spans full width), stacked on narrow */}
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-2">
           {/* Block 1: Source document */}
           <div className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm">
             <h2 className="mb-3 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
@@ -190,8 +190,8 @@ export default async function DocumentDetailPage({ params }: Props) {
                   />
                 </div>
 
-                {/* Key indicators */}
-                {classification.key_indicators?.length > 0 && (
+                {/* Key indicators — guard against null (old API responses) */}
+                {Array.isArray(classification.key_indicators) && classification.key_indicators.length > 0 && (
                   <div>
                     <p className="mb-2 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
                       Key indicators

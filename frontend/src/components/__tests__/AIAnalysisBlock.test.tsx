@@ -400,3 +400,75 @@ describe("AIAnalysisBlock — model attribution footer", () => {
     expect(footer).toHaveTextContent(/april 15, 2026/i);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Null-safety (crash guard for pre-POR-151 API responses)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("AIAnalysisBlock — null/undefined defensive rendering", () => {
+  it("does not crash when extracted_fields is null (old API response)", () => {
+    // Simulate old Haiku pipeline response where extracted_fields is null
+    const cls = {
+      ...baseClassification,
+      extracted_fields: null,
+    } as unknown as Classification;
+    expect(() =>
+      render(<AIAnalysisBlock classification={cls} analysedAt={ANALYSED_AT} />)
+    ).not.toThrow();
+    expect(screen.getByTestId("ai-analysis-block")).toBeInTheDocument();
+  });
+
+  it("does not crash when extracted_fields is undefined", () => {
+    const cls: Classification = { ...baseClassification, extracted_fields: undefined };
+    expect(() =>
+      render(<AIAnalysisBlock classification={cls} analysedAt={ANALYSED_AT} />)
+    ).not.toThrow();
+    expect(screen.getByTestId("ai-analysis-block")).toBeInTheDocument();
+  });
+
+  it("does not crash when key_indicators is null (old API response)", () => {
+    const cls = {
+      ...baseClassification,
+      key_indicators: null,
+    } as unknown as Classification;
+    expect(() =>
+      render(<AIAnalysisBlock classification={cls} analysedAt={ANALYSED_AT} />)
+    ).not.toThrow();
+    // Should fall back to minimal reasoning
+    const reasoningEl = screen.getByTestId("classification-reasoning");
+    expect(reasoningEl).toHaveTextContent(/Classified as Capital Call Notice/);
+  });
+
+  it("does not crash when classification_reasoning is null", () => {
+    const cls: Classification = {
+      ...baseClassification,
+      classification_reasoning: null,
+    };
+    expect(() =>
+      render(<AIAnalysisBlock classification={cls} analysedAt={ANALYSED_AT} />)
+    ).not.toThrow();
+    // Should fall back to key_indicators reasoning
+    const reasoningEl = screen.getByTestId("classification-reasoning");
+    expect(reasoningEl).toHaveTextContent(/Classified as Capital Call Notice/);
+  });
+
+  it("renders overall confidence fallback when extracted_fields is null", () => {
+    const cls = {
+      ...baseClassification,
+      extracted_fields: null,
+    } as unknown as Classification;
+    render(<AIAnalysisBlock classification={cls} analysedAt={ANALYSED_AT} />);
+    // 0.92 → "92%"
+    expect(screen.getByText("92%")).toBeInTheDocument();
+    expect(screen.queryByTestId("extraction-table")).not.toBeInTheDocument();
+  });
+
+  it("does not show exception callouts when extracted_fields is null", () => {
+    const cls = {
+      ...baseClassification,
+      extracted_fields: null,
+    } as unknown as Classification;
+    render(<AIAnalysisBlock classification={cls} analysedAt={ANALYSED_AT} />);
+    expect(screen.queryByTestId("exception-callouts")).not.toBeInTheDocument();
+  });
+});

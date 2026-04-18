@@ -54,7 +54,7 @@ export function AuditFilterBar({
   }
 
   const inputClass =
-    "w-full rounded border border-border-hairline bg-bg-bone px-3 py-2 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:ring-2 focus:ring-fg-slate transition-colors duration-fast";
+    "w-full rounded-lg border border-border-hairline bg-bg-bone px-3 py-2 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:border-fg-slate focus:ring-1 focus:ring-fg-slate transition-colors duration-fast appearance-none";
 
   const labelClass = "block font-interface text-xs font-medium uppercase tracking-wider text-fg-muted mb-1";
 

@@ -85,7 +85,7 @@ function ConsoleSection({
   const hasMore = count > MAX_VISIBLE;
 
   return (
-    <section className="mb-6 md:mb-8">
+    <section className="mb-10 md:mb-12">
       {/* Section header — sticky on mobile for long lists */}
       <div
         className={[
@@ -102,10 +102,10 @@ function ConsoleSection({
         </h2>
         <span
           className={[
-            "font-interface text-sm tabular-nums",
+            "inline-flex items-center justify-center rounded-full px-2 py-0.5 font-interface text-xs tabular-nums min-w-[1.5rem]",
             useBrassCount && count > 0
-              ? "text-[#B8914E] font-semibold"
-              : "text-fg-muted",
+              ? "bg-[rgba(184,145,78,0.15)] text-[#9A7639] font-medium"
+              : "bg-[rgba(140,149,163,0.12)] text-fg-muted font-normal",
           ].join(" ")}
         >
           {count}
@@ -366,9 +366,9 @@ export default async function DocumentsPage() {
           Tablet (md: 768px):  tighter max-width, same single-column sections
           Desktop (lg: 1280px): max-w-6xl centred, same 5-section layout
       */}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:py-8">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:py-12">
         {/* Page header */}
-        <div className="mb-6 md:mb-8">
+        <div className="mb-8 md:mb-10">
           <h1 className="font-display text-xl md:text-2xl font-light text-fg-obsidian tracking-tight">
             Operations console
           </h1>
