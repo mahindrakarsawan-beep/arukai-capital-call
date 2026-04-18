@@ -103,7 +103,7 @@ export function AuditLedgerClient({
     <>
       {/* Filter bar */}
       <div
-        className={`mb-6 transition-opacity duration-fast ${isPending ? "opacity-50 pointer-events-none" : ""}`}
+        className={`mb-10 transition-opacity duration-fast ${isPending ? "opacity-50 pointer-events-none" : ""}`}
       >
         <AuditFilterBar
           onApply={handleApply}

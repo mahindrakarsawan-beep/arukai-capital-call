@@ -99,7 +99,7 @@ export default async function DocumentDetailPage({ params }: Props) {
     <div className="flex min-h-screen flex-col">
       <TopNav user={user} />
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-10 md:py-14">
+      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-12 md:py-16 lg:py-16">
         {/* Breadcrumb */}
         <nav className="mb-6 flex items-center gap-2 font-interface text-sm text-fg-muted">
           <Link
@@ -115,9 +115,9 @@ export default async function DocumentDetailPage({ params }: Props) {
         </nav>
 
         {/* Header block */}
-        <div className="mb-6">
+        <div className="mb-8">
           <div className="flex items-start justify-between gap-4 flex-wrap">
-            <h1 className="font-display text-2xl font-light text-fg-obsidian tracking-tight break-all">
+            <h1 className="font-display text-[28px] md:text-[32px] font-light text-fg-obsidian tracking-tight break-all">
               {doc.filename}
             </h1>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -144,10 +144,10 @@ export default async function DocumentDetailPage({ params }: Props) {
         </div>
 
         {/* 5-block grid: 2×2 ≥lg (AI Analysis spans full width), stacked on narrow */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-8 lg:grid-cols-2">
           {/* Block 1: Source document */}
-          <div className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm">
-            <h2 className="mb-3 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
+          <div className="rounded-lg border border-border-hairline bg-bg-parchment p-6 lg:p-8 shadow-sm">
+            <h2 className="mb-6 font-display text-xl font-light tracking-tight text-fg-obsidian">
               Source document
             </h2>
             {/* A3: blob-URL auth fix — SourceViewer fetches PDF with Authorization header */}
@@ -160,8 +160,8 @@ export default async function DocumentDetailPage({ params }: Props) {
           </div>
 
           {/* Block 2: Extracted facts */}
-          <div className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm">
-            <h2 className="mb-1 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
+          <div className="rounded-lg border border-border-hairline bg-bg-parchment p-6 lg:p-8 shadow-sm">
+            <h2 className="mb-6 font-display text-xl font-light tracking-tight text-fg-obsidian">
               Extracted facts
             </h2>
 
@@ -239,8 +239,8 @@ export default async function DocumentDetailPage({ params }: Props) {
           )}
 
           {/* Block 4: Review notes */}
-          <div className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm">
-            <h2 className="mb-3 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
+          <div className="rounded-lg border border-border-hairline bg-bg-bone p-6 lg:p-8 shadow-sm">
+            <h2 className="mb-6 font-display text-xl font-light tracking-tight text-fg-obsidian">
               Review notes
             </h2>
             <p className="font-interface text-sm text-fg-muted italic">
@@ -250,8 +250,8 @@ export default async function DocumentDetailPage({ params }: Props) {
           </div>
 
           {/* Block 5: Audit trail */}
-          <div className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm">
-            <h2 className="mb-3 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
+          <div className="rounded-lg border border-border-hairline bg-bg-bone p-6 lg:p-8 shadow-sm">
+            <h2 className="mb-6 font-display text-xl font-light tracking-tight text-fg-obsidian">
               Audit trail
             </h2>
             <p className="font-interface text-sm text-fg-muted italic">

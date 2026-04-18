@@ -50,7 +50,7 @@ describe("DocumentCard", () => {
     renderRow(baseDocument);
     // pending_review + confidence 0.94 → intake_complete
     expect(
-      screen.getByText(/intake complete · awaiting reviewer/i)
+      screen.getByText(/intake complete — ready for review/i)
     ).toBeInTheDocument();
   });
 

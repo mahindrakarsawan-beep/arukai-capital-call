@@ -225,7 +225,7 @@ export default function UploadPage() {
       />
       {/* Minimal nav */}
       <header className="border-b border-border-hairline bg-bg-bone sticky top-0">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
           <a
             href="/documents"
             className="font-display text-lg font-light text-fg-obsidian tracking-tight"
@@ -241,9 +241,9 @@ export default function UploadPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-xl flex-1 px-4 py-10">
-        <div className="mb-6">
-          <h1 className="font-display text-2xl font-light text-fg-obsidian tracking-tight">
+      <main className="mx-auto w-full max-w-xl flex-1 px-4 py-12 lg:py-16">
+        <div className="mb-8">
+          <h1 className="font-display text-[28px] md:text-[32px] font-light text-fg-obsidian tracking-tight">
             Begin governed intake
           </h1>
           <p className="mt-1 font-interface text-sm text-fg-muted">
@@ -256,7 +256,7 @@ export default function UploadPage() {
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-lg border border-border-hairline bg-bg-bone p-6 shadow-sm"
+          className="rounded-lg border border-border-hairline bg-bg-parchment p-6 lg:p-8 shadow-[0_8px_32px_rgba(13,15,18,0.06)]"
           noValidate
         >
           {/* Package reference */}
@@ -273,7 +273,7 @@ export default function UploadPage() {
               name="title"
               type="text"
               placeholder="e.g. Fund III — Q2 capital call"
-              className="w-full rounded-md border border-border-hairline bg-bg-parchment px-3 py-2 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:ring-2 focus:ring-fg-slate focus:ring-offset-0"
+              className="w-full rounded-md border border-border-hairline bg-bg-bone px-3 py-2 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:ring-2 focus:ring-fg-slate focus:ring-offset-0"
             />
           </div>
 
@@ -292,7 +292,7 @@ export default function UploadPage() {
               type="file"
               accept="application/pdf"
               onChange={handleFileChange}
-              className="block w-full rounded-md border border-border-hairline bg-bg-parchment px-3 py-2 font-interface text-sm text-fg-obsidian file:mr-3 file:rounded file:border-0 file:bg-fg-obsidian file:px-3 file:py-1 file:font-interface file:text-xs file:text-bg-bone file:font-medium cursor-pointer"
+              className="block w-full rounded-md border border-border-hairline bg-bg-bone px-3 py-2 font-interface text-sm text-fg-obsidian file:mr-3 file:rounded file:border-0 file:bg-fg-obsidian file:px-3 file:py-1 file:font-interface file:text-xs file:text-bg-bone file:font-medium cursor-pointer"
             />
             {/* Placeholder text for file input */}
             <span className="sr-only">Select package PDF</span>

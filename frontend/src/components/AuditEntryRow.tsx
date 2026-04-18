@@ -81,7 +81,7 @@ export function AuditEntryRow({ event }: AuditEntryRowProps) {
   return (
     <>
       <tr
-        className="border-b border-border-hairline last:border-0 hover:bg-[rgba(13,15,18,0.02)] transition-colors duration-fast"
+        className="audit-row border-b border-border-hairline last:border-0 hover:bg-bg-parchment transition-colors duration-fast"
         aria-expanded={expanded}
       >
         {/* Timestamp */}

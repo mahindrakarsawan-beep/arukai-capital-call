@@ -42,10 +42,10 @@ export default function LoginPage() {
           maxWidth: "448px",
           backgroundColor: "#FAFAF8",
           borderColor: "rgba(26,31,40,0.10)",
-          boxShadow: "0 4px 24px 0 rgba(0,0,0,0.18), 0 1px 4px 0 rgba(0,0,0,0.10)",
+          boxShadow: "0 8px 32px rgba(13,15,18,0.06), 0 4px 24px 0 rgba(0,0,0,0.18), 0 1px 4px 0 rgba(0,0,0,0.10)",
         }}
       >
-        <h2 className="mb-1 font-display text-2xl font-light text-fg-obsidian tracking-tight">
+        <h2 className="mb-1 font-display text-2xl font-light text-fg-obsidian tracking-[0.01em]">
           Authorized access
         </h2>
         <p className="mb-6 font-interface text-sm text-fg-muted">
@@ -82,7 +82,7 @@ export default function LoginPage() {
           )}
 
           {/* Submit: neutral dark — never brass on login (spec §8.2) */}
-          <Button type="submit" variant="primary" loading={isPending}>
+          <Button type="submit" variant="primary" loading={isPending} className="font-display font-light text-sm tracking-[0.12em] uppercase">
             Enter workflow
           </Button>
         </form>

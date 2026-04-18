@@ -85,7 +85,7 @@ function ConsoleSection({
   const hasMore = count > MAX_VISIBLE;
 
   return (
-    <section className="mb-10 md:mb-12">
+    <section className="mb-10 lg:mb-12">
       {/* Section header — sticky on mobile for long lists */}
       <div
         className={[
@@ -97,7 +97,7 @@ function ConsoleSection({
           .filter(Boolean)
           .join(" ")}
       >
-        <h2 className="font-display text-lg md:text-xl font-light text-fg-obsidian tracking-tight">
+        <h2 className="font-display text-xl md:text-2xl font-light text-fg-obsidian tracking-tight">
           {title}
         </h2>
         <span
@@ -120,7 +120,7 @@ function ConsoleSection({
       )}
 
       {/* Row container */}
-      <div className="rounded-lg border border-border-hairline bg-bg-bone overflow-hidden">
+      <div className="rounded-lg border border-border-hairline bg-bg-parchment overflow-hidden">
         {docs.length === 0 ? (
           <p className="px-4 py-4 font-interface text-sm text-fg-muted italic">
             {emptyState}
@@ -366,10 +366,10 @@ export default async function DocumentsPage() {
           Tablet (md: 768px):  tighter max-width, same single-column sections
           Desktop (lg: 1280px): max-w-6xl centred, same 5-section layout
       */}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 md:py-12">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 lg:py-16">
         {/* Page header */}
-        <div className="mb-8 md:mb-10">
-          <h1 className="font-display text-xl md:text-2xl font-light text-fg-obsidian tracking-tight">
+        <div className="mb-10 md:mb-12">
+          <h1 className="font-display text-2xl md:text-[32px] font-light text-fg-obsidian tracking-tight">
             Operations console
           </h1>
           <p className="mt-0.5 font-interface text-sm text-fg-muted">

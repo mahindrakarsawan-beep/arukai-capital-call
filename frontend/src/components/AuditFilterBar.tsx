@@ -54,12 +54,12 @@ export function AuditFilterBar({
   }
 
   const inputClass =
-    "w-full rounded-lg border border-border-hairline bg-bg-bone px-3 py-2 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:border-fg-slate focus:ring-1 focus:ring-fg-slate transition-colors duration-fast appearance-none";
+    "w-full rounded-lg border border-border-hairline bg-bg-bone px-3 py-2.5 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:border-fg-slate focus:ring-1 focus:ring-fg-slate transition-colors duration-fast appearance-none";
 
   const labelClass = "block font-interface text-xs font-medium uppercase tracking-wider text-fg-muted mb-1";
 
   return (
-    <div className="rounded-lg border border-border-hairline bg-bg-bone p-4">
+    <div className="rounded-xl border border-border-hairline bg-bg-parchment p-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {/* Filter by actor */}
         <div>

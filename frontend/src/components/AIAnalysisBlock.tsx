@@ -209,7 +209,7 @@ export function AIAnalysisBlock({
   return (
     <div
       data-testid="ai-analysis-block"
-      className="rounded-lg border border-border-hairline bg-bg-parchment p-5 shadow-sm"
+      className="rounded-lg border border-border-hairline bg-bg-parchment p-6 lg:p-8 shadow-sm"
       style={{
         borderLeft: "3px solid rgba(184,145,78,0.35)",
       }}
@@ -261,7 +261,7 @@ export function AIAnalysisBlock({
                 <div
                   key={key}
                   data-testid={`field-row-${key}`}
-                  className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 px-3 py-2.5 bg-bg-bone"
+                  className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 px-4 py-3 bg-bg-bone"
                 >
                   {/* Field name */}
                   <span className="font-interface text-xs font-medium uppercase tracking-widest text-fg-muted flex-shrink-0 sm:w-36 pt-0.5">

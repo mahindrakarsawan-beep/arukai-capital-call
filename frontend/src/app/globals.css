@@ -44,6 +44,29 @@ body {
   }
 }
 
+/* Editorial heading defaults — Cormorant dominant for h1/h2 */
+h1, h2 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+h1 {
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+h2 {
+  font-weight: 300;
+}
+
+/* Premium card hover — subtle lift */
+.card-surface:hover {
+  box-shadow: 0 4px 16px rgba(13, 15, 18, 0.04);
+  transition: box-shadow 200ms ease;
+}
+
+/* Warm alternating audit rows */
+.audit-row:nth-child(even) {
+  background-color: rgba(238, 233, 224, 0.3);
+}
+
 /* C1: prefers-reduced-motion — collapse all CSS transitions and animations to instant.
  * Per spec §C1 and animation memory: withTiming equivalent is transition: opacity 200ms ease-out.
  * Reduced motion collapses that to instant (0ms).

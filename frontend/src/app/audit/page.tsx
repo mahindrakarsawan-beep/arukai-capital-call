@@ -72,9 +72,9 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
     return (
       <div className="flex min-h-screen flex-col bg-bg-bone">
         <TopNav user={user} />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:py-12 flex flex-col items-center justify-center text-center">
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 lg:py-16 flex flex-col items-center justify-center text-center">
           {/* Hero with restricted heading */}
-          <h1 className="font-display text-2xl md:text-4xl font-light text-fg-obsidian tracking-tight mb-3">
+          <h1 className="font-display text-[32px] md:text-[40px] font-light text-fg-obsidian tracking-tight mb-3">
             Audit ledger
           </h1>
           <div className="mt-4 rounded-lg border border-[rgba(154,118,57,0.30)] bg-[rgba(154,118,57,0.06)] px-6 py-8 max-w-md">
@@ -135,10 +135,10 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         <StaleBanner message="Workflow state could not be refreshed. The information shown may be stale." />
       )}
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:py-8">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 lg:py-16">
         {/* ── Hero ────────────────────────────────────────────────────────── */}
-        <div className="mb-6 md:mb-8">
-          <h1 className="font-display text-2xl md:text-[32px] font-light text-fg-obsidian tracking-tight leading-tight">
+        <div className="mb-10 md:mb-12">
+          <h1 className="font-display text-[32px] md:text-[40px] font-light text-fg-obsidian tracking-tight leading-tight">
             Audit ledger
           </h1>
           {/* Role-gate label — warningText tone per spec */}

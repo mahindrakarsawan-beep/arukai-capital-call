@@ -84,14 +84,14 @@ export function resolvePackageState(
         uiState: "submitted",
         pillLabel: "Package submitted",
         pillTone: "neutral",
-        nextOwnerText: "Awaiting system intake",
+        nextOwnerText: "Preparing for classification",
         nextOwnerDot: "neutral",
       };
 
     case "intake_complete":
       return {
         uiState: "intake_complete",
-        pillLabel: "Intake complete · awaiting reviewer",
+        pillLabel: "Intake complete — ready for review",
         pillTone: "neutral",
         nextOwnerText: reviewerName ? `With ${reviewerName}` : "Awaiting reviewer",
         nextOwnerDot: "neutral",
@@ -193,7 +193,7 @@ export function resolvePackageState(
         uiState: "submitted",
         pillLabel: "Submitted · awaiting intake",
         pillTone: "neutral",
-        nextOwnerText: "Awaiting system intake",
+        nextOwnerText: "Preparing for classification",
         nextOwnerDot: "neutral",
       };
 
@@ -247,7 +247,7 @@ export function resolvePackageState(
       // No claim state provided: Phase A fallback (intake_complete awaiting reviewer)
       return {
         uiState: "intake_complete",
-        pillLabel: "Intake complete · awaiting reviewer",
+        pillLabel: "Intake complete — ready for review",
         pillTone: "neutral",
         nextOwnerText: reviewerName ? `With ${reviewerName}` : "Awaiting reviewer",
         nextOwnerDot: "neutral",
@@ -284,7 +284,7 @@ export function resolvePackageState(
         uiState: "submitted",
         pillLabel: "Submitted · awaiting intake",
         pillTone: "neutral",
-        nextOwnerText: "Awaiting system intake",
+        nextOwnerText: "Preparing for classification",
         nextOwnerDot: "neutral",
       };
   }

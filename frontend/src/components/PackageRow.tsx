@@ -104,7 +104,7 @@ export function PackageRow({ pkg, onClaimToggle }: PackageRowProps) {
 
   return (
     /* Mobile: card (flex-col), Tablet+: row (flex-row) */
-    <div className="group relative border-b border-border-hairline last:border-0">
+    <div className="group relative border-b border-border-hairline last:border-0 border-l-2 border-l-transparent hover:border-l-[#B8914E] transition-colors duration-fast">
       {/* Row link covers the whole cell — CTA buttons intercept clicks via stopPropagation */}
       <Link
         href={`/documents/${pkg.id}`}
