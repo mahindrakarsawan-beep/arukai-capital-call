@@ -1,5 +1,5 @@
 /**
- * IntakeCeremony tests — C1 (POR-147 / ARU-17-C1)
+ * IntakeCeremony tests — C1 (POR-147 / ARU-17-C1) + POR-150
  * TDD: failing tests committed before implementation (Miller gate per TDD workflow).
  *
  * Coverage:
@@ -10,24 +10,26 @@
  *   - Arukai wordmark rendered at bottom
  *   - overlay visible when visible=true, hidden (null) when false
  *   - reducedMotion prop does not break rendering
+ *   - POR-150: real AI data in step labels via stepData prop
  */
 
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { IntakeCeremony } from "@/components/IntakeCeremony";
+import type { IntakeStepData } from "@/components/IntakeCeremony";
 
-const STEP_LABELS = [
+const STEP_LABELS_FALLBACK = [
   "Package received",
   "Classifying materials",
   "Extracting key fields",
   "Intake complete",
 ];
 
-describe("IntakeCeremony — structure", () => {
-  it("renders all 4 step labels when visible", () => {
+describe("IntakeCeremony — structure (fallback labels, no stepData)", () => {
+  it("renders all 4 fallback step labels when visible and stepData is absent", () => {
     render(<IntakeCeremony visible activeStep={1} reducedMotion={false} />);
-    STEP_LABELS.forEach((label) => {
+    STEP_LABELS_FALLBACK.forEach((label) => {
       expect(screen.getByText(label)).toBeInTheDocument();
     });
   });
@@ -112,9 +114,153 @@ describe("IntakeCeremony — reduced motion", () => {
 
   it("with reducedMotion, still renders all 4 steps", () => {
     render(<IntakeCeremony visible activeStep={2} reducedMotion />);
-    STEP_LABELS.forEach((label) => {
+    STEP_LABELS_FALLBACK.forEach((label) => {
       expect(screen.getByText(label)).toBeInTheDocument();
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POR-150: Real AI narration via stepData prop
+// ─────────────────────────────────────────────────────────────────────────────
+
+const fullStepData: IntakeStepData = {
+  receive: { filesize: "1.40 MB", mimeType: "application/pdf" },
+  classify: { docType: "Capital Call Notice", confidence: 0.92, pending: false },
+  extract: { totalFields: 8, maxFields: 8, flaggedCount: 1 },
+  ready: { nextOwner: "reviewer" },
+};
+
+describe("IntakeCeremony — POR-150 real AI narration (stepData)", () => {
+  it("step 01 shows filesize and mimeType in the label", () => {
+    render(
+      <IntakeCeremony
+        visible
+        activeStep={1}
+        reducedMotion={false}
+        stepData={fullStepData}
+      />
+    );
+    const label = screen.getByTestId("step-label-1");
+    expect(label).toHaveTextContent(/Document received/i);
+    expect(label).toHaveTextContent(/1\.40 MB/);
+    expect(label).toHaveTextContent(/application\/pdf/);
+  });
+
+  it("step 02 shows classified doc type and confidence when classification is ready", () => {
+    render(
+      <IntakeCeremony
+        visible
+        activeStep={2}
+        reducedMotion={false}
+        stepData={fullStepData}
+      />
+    );
+    const label = screen.getByTestId("step-label-2");
+    expect(label).toHaveTextContent(/Classified as Capital Call Notice/i);
+    expect(label).toHaveTextContent(/confidence 92%/i);
+  });
+
+  it("step 02 shows 'Classifying…' when classify.pending is true", () => {
+    const pendingData: IntakeStepData = {
+      ...fullStepData,
+      classify: { pending: true },
+    };
+    render(
+      <IntakeCeremony
+        visible
+        activeStep={2}
+        reducedMotion={false}
+        stepData={pendingData}
+      />
+    );
+    const label = screen.getByTestId("step-label-2");
+    expect(label).toHaveTextContent(/Classifying…/i);
+  });
+
+  it("step 03 shows field count and flagged count", () => {
+    render(
+      <IntakeCeremony
+        visible
+        activeStep={3}
+        reducedMotion={false}
+        stepData={fullStepData}
+      />
+    );
+    const label = screen.getByTestId("step-label-3");
+    expect(label).toHaveTextContent(/8 of 8 fields extracted/i);
+    expect(label).toHaveTextContent(/1 flagged/i);
+  });
+
+  it("step 03 shows '0 flagged' when flaggedCount is 0", () => {
+    const noFlagsData: IntakeStepData = {
+      ...fullStepData,
+      extract: { totalFields: 8, maxFields: 8, flaggedCount: 0 },
+    };
+    render(
+      <IntakeCeremony
+        visible
+        activeStep={3}
+        reducedMotion={false}
+        stepData={noFlagsData}
+      />
+    );
+    const label = screen.getByTestId("step-label-3");
+    expect(label).toHaveTextContent(/0 flagged/i);
+  });
+
+  it("step 04 shows next owner in ready label", () => {
+    render(
+      <IntakeCeremony
+        visible
+        activeStep={4}
+        reducedMotion={false}
+        stepData={fullStepData}
+      />
+    );
+    const label = screen.getByTestId("step-label-4");
+    expect(label).toHaveTextContent(/Package ready for review/i);
+    expect(label).toHaveTextContent(/awaiting reviewer/i);
+  });
+
+  it("step 04 defaults next owner to 'reviewer' when nextOwner is null", () => {
+    const noOwnerData: IntakeStepData = {
+      ...fullStepData,
+      ready: { nextOwner: null },
+    };
+    render(
+      <IntakeCeremony
+        visible
+        activeStep={4}
+        reducedMotion={false}
+        stepData={noOwnerData}
+      />
+    );
+    const label = screen.getByTestId("step-label-4");
+    expect(label).toHaveTextContent(/awaiting reviewer/i);
+  });
+
+  it("renders fallback labels for each step when stepData is partially absent", () => {
+    // Only receive data provided — other steps fall back
+    const partialData: IntakeStepData = {
+      receive: { filesize: "2.10 MB", mimeType: "application/pdf" },
+    };
+    render(
+      <IntakeCeremony
+        visible
+        activeStep={1}
+        reducedMotion={false}
+        stepData={partialData}
+      />
+    );
+    // Step 1 should have real data
+    expect(screen.getByTestId("step-label-1")).toHaveTextContent(/2\.10 MB/);
+    // Step 2 should show fallback "Classifying materials"
+    expect(screen.getByTestId("step-label-2")).toHaveTextContent(/Classifying materials/i);
+    // Step 3 fallback
+    expect(screen.getByTestId("step-label-3")).toHaveTextContent(/Extracting key fields/i);
+    // Step 4 fallback
+    expect(screen.getByTestId("step-label-4")).toHaveTextContent(/Intake complete/i);
   });
 });
 

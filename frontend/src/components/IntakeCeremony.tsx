@@ -2,35 +2,107 @@
 
 /**
  * IntakeCeremony — 4-step private intake overlay (C1, POR-147 / ARU-17-C1)
+ * Updated POR-150: real AI narration data replaces cosmetic labels.
  *
- * Adapted from Portfolio Analyzer PrivateIntakeCeremony (ARU-02-P17) for Next.js:
- * - CSS transitions instead of Reanimated (withTiming → transition: opacity 200ms ease-out)
- * - prefers-reduced-motion: collapses to instant transitions
- * - Obsidian overlay at 95% opacity
- * - Cormorant 20pt step labels
- * - Active step: brandBrass (#B8914E) text + number
- * - Completed steps: checkmark + fgMuted
- * - "Arukai" wordmark at bottom
+ * Steps now display real output from the classification pipeline:
+ *   01 Receive:  "Document received · [filesize] · [mime_type]"
+ *   02 Classify: "Classified as [doc_type] · confidence [X]%"
+ *              → "Classifying..." until classification arrives
+ *   03 Extract:  "[N] of [M] fields extracted · [flagged] flagged"
+ *   04 Ready:    "Package ready for review · awaiting [next_owner]"
+ *
+ * When stepData is not provided, falls back to the original cosmetic labels
+ * so existing callers without classification data still work correctly.
  *
  * Animation rules (per animation memory):
  *   - withTiming only — CSS transition: opacity 200ms ease-out
  *   - No springs in intake context
  *   - Reduced-motion: prefers-reduced-motion media query collapses to instant
  *
- * Props:
- *   visible       — when false, component returns null (unmounted)
- *   activeStep    — 1-based index of the illuminated step (1–4)
- *   reducedMotion — from useReducedMotion(); collapses transitions to instant
- *
  * Brass discipline (spec §9.3): brass appears ONLY on the active step here.
- * This overlay is a system ceremony surface — not a navigation or approval context.
  */
 
 import React from "react";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Step data shape — real AI output per step (POR-150)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface IntakeStepData {
+  /** Step 1: file receive metadata */
+  receive?: {
+    /** Human-readable file size, e.g. "1.4 MB" */
+    filesize?: string | null;
+    /** MIME type, e.g. "application/pdf" */
+    mimeType?: string | null;
+  } | null;
+  /** Step 2: classification result */
+  classify?: {
+    /** Formatted doc type, e.g. "Capital Call Notice" */
+    docType?: string | null;
+    /** Confidence 0–1 */
+    confidence?: number | null;
+    /** True while classification is still in progress (async) */
+    pending?: boolean;
+  } | null;
+  /** Step 3: extraction result */
+  extract?: {
+    /** Total number of extracted fields */
+    totalFields?: number | null;
+    /** Number of fields attempted (denominator for "N of M") */
+    maxFields?: number | null;
+    /** Number of low-confidence / flagged fields */
+    flaggedCount?: number | null;
+  } | null;
+  /** Step 4: ready handoff */
+  ready?: {
+    /** Next owner e.g. "reviewer" or a specific email */
+    nextOwner?: string | null;
+  } | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers — build label strings from step data
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildReceiveLabel(data?: IntakeStepData["receive"]): string {
+  if (!data) return "Package received";
+  const parts: string[] = ["Document received"];
+  if (data.filesize) parts.push(data.filesize);
+  if (data.mimeType) parts.push(data.mimeType);
+  return parts.join(" · ");
+}
+
+function buildClassifyLabel(data?: IntakeStepData["classify"]): string {
+  if (!data) return "Classifying materials";
+  if (data.pending) return "Classifying…";
+  const parts: string[] = [];
+  if (data.docType) parts.push(`Classified as ${data.docType}`);
+  if (typeof data.confidence === "number" && data.confidence > 0) {
+    parts.push(`confidence ${Math.round(data.confidence * 100)}%`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "Classifying materials";
+}
+
+function buildExtractLabel(data?: IntakeStepData["extract"]): string {
+  if (!data) return "Extracting key fields";
+  const total = data.totalFields ?? 0;
+  const max = data.maxFields ?? total;
+  const flagged = data.flaggedCount ?? 0;
+  const extractedPart = max > 0 ? `${total} of ${max} fields extracted` : `${total} fields extracted`;
+  const flaggedPart = flagged > 0 ? `${flagged} flagged` : "0 flagged";
+  return `${extractedPart} · ${flaggedPart}`;
+}
+
+function buildReadyLabel(data?: IntakeStepData["ready"]): string {
+  if (!data) return "Intake complete";
+  const owner = data.nextOwner ?? "reviewer";
+  return `Package ready for review · awaiting ${owner}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal step shape
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface Step {
   index: number;
@@ -38,28 +110,17 @@ interface Step {
   label: string;
 }
 
-const STEPS: readonly Step[] = [
-  { index: 1, number: "01", label: "Package received" },
-  { index: 2, number: "02", label: "Classifying materials" },
-  { index: 3, number: "03", label: "Extracting key fields" },
-  { index: 4, number: "04", label: "Intake complete" },
-] as const;
+const TOTAL_STEPS = 4;
 
-const TOTAL_STEPS = STEPS.length;
-
-/**
- * Clamp activeStep to [1, TOTAL_STEPS].
- * Defensive guard: non-integer or out-of-range defaults to 1.
- */
 function safeActiveStep(v: unknown): number {
   if (typeof v !== "number" || !Number.isFinite(v)) return 1;
   if (v < 1 || v > TOTAL_STEPS) return 1;
   return Math.round(v);
 }
 
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 // Props
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface IntakeCeremonyProps {
   /** When false, overlay is unmounted entirely. */
@@ -68,11 +129,16 @@ export interface IntakeCeremonyProps {
   activeStep: number;
   /** From useReducedMotion() — collapses all CSS transitions to instant. */
   reducedMotion: boolean;
+  /**
+   * Real AI output data for each step label (POR-150).
+   * When omitted, falls back to original cosmetic labels for backward compat.
+   */
+  stepData?: IntakeStepData;
 }
 
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 // StepRow inner component
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface StepRowProps extends Step {
   isActive: boolean;
@@ -88,11 +154,7 @@ function StepRow({
   isCompleted,
   reducedMotion,
 }: StepRowProps) {
-  // Opacity: active/completed → 1, future → 0.28
   const opacity = isActive || isCompleted ? 1 : 0.28;
-
-  // withTiming equivalent: CSS transition on opacity
-  // Reduced motion: duration 0ms (instant); full motion: 200ms ease-out
   const transitionStyle = reducedMotion
     ? {}
     : { transition: "opacity 200ms ease-out" };
@@ -128,12 +190,13 @@ function StepRow({
 
       {/* Label: Cormorant 20pt, brass when active, muted when future */}
       <span
+        data-testid={`step-label-${index}`}
         style={{
           fontFamily: "'Cormorant Garamond', Georgia, serif",
           fontSize: "20px",
           fontWeight: isActive ? 400 : 300,
           lineHeight: "26px",
-          color: isActive ? "#B8914E" : isCompleted ? "#8C95A3" : "#8C95A3",
+          color: isActive ? "#B8914E" : "#8C95A3",
         }}
       >
         {label}
@@ -157,18 +220,43 @@ function StepRow({
   );
 }
 
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 // Main component
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function IntakeCeremony({
   visible,
   activeStep,
   reducedMotion,
+  stepData,
 }: IntakeCeremonyProps) {
   const safeStep = safeActiveStep(activeStep);
 
   if (!visible) return null;
+
+  // Build the 4 step objects with real AI narration labels (POR-150)
+  const STEPS: readonly Step[] = [
+    {
+      index: 1,
+      number: "01",
+      label: buildReceiveLabel(stepData?.receive),
+    },
+    {
+      index: 2,
+      number: "02",
+      label: buildClassifyLabel(stepData?.classify),
+    },
+    {
+      index: 3,
+      number: "03",
+      label: buildExtractLabel(stepData?.extract),
+    },
+    {
+      index: 4,
+      number: "04",
+      label: buildReadyLabel(stepData?.ready),
+    },
+  ];
 
   return (
     <div
@@ -179,7 +267,6 @@ export function IntakeCeremony({
       aria-valuemin={1}
       aria-valuemax={TOTAL_STEPS}
       style={{
-        // Obsidian overlay at 95% opacity
         position: "fixed",
         inset: 0,
         backgroundColor: "rgba(13,15,18,0.95)",
@@ -189,7 +276,6 @@ export function IntakeCeremony({
         alignItems: "center",
         justifyContent: "center",
         padding: "24px",
-        // Overlay entry: fade in
         ...(reducedMotion ? {} : { animation: "ceremonyFadeIn 200ms ease-out both" }),
       }}
     >
@@ -201,7 +287,7 @@ export function IntakeCeremony({
           border: "1px solid rgba(26,31,40,0.10)",
           padding: "32px 40px",
           minWidth: "280px",
-          maxWidth: "420px",
+          maxWidth: "520px",
           width: "100%",
           boxShadow: "0 2px 8px rgba(13,15,18,0.12)",
           display: "flex",

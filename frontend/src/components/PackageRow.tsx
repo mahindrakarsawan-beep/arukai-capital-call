@@ -48,12 +48,31 @@ export interface PackageRowPkg {
   claimStatus?: ClaimState | null;
   approver?: string | null;
   decisionDate?: string | null;
+  /**
+   * 1-line AI summary from the backend (POR-149/POR-151).
+   * e.g. "Capital Call · $2.5M due May 15 · 8 fields extracted · 99% confidence · 0 flags"
+   * When null and docType is available, a client-side fallback is generated.
+   */
+  aiSummary?: string | null;
 }
 
 interface PackageRowProps {
   pkg: PackageRowPkg;
   /** Called when user clicks "Claim to review" or "Release claim" */
   onClaimToggle?: (id: string, action: "claim" | "release") => void;
+}
+
+/**
+ * Build a client-side AI summary fallback when the backend hasn't yet shipped
+ * ai_summary (POR-151). Composes from available fields on the PackageRowPkg.
+ */
+export function buildClientSummary(pkg: PackageRowPkg): string | null {
+  if (!pkg.docType) return null;
+  const parts: string[] = [formatDocType(pkg.docType)];
+  if (typeof pkg.confidence === "number" && pkg.confidence > 0) {
+    parts.push(`${Math.round(pkg.confidence * 100)}% confidence`);
+  }
+  return parts.join(" · ");
 }
 
 /**
@@ -116,6 +135,28 @@ export function PackageRow({ pkg, onClaimToggle }: PackageRowProps) {
               {pkg.subtitle}
             </span>
           )}
+          {/* AI summary line (POR-149): server summary or client fallback */}
+          {(() => {
+            const summary = pkg.aiSummary ?? buildClientSummary(pkg);
+            if (summary) {
+              return (
+                <span
+                  data-testid="ai-summary-line"
+                  className="font-interface text-sm text-fg-slate truncate"
+                >
+                  {summary}
+                </span>
+              );
+            }
+            return (
+              <span
+                data-testid="ai-summary-line"
+                className="font-interface text-sm text-fg-muted italic"
+              >
+                Awaiting classification
+              </span>
+            );
+          })()}
           {/* Received timestamp */}
           {pkg.lastMovement && (
             <span className="font-interface text-xs text-fg-muted">

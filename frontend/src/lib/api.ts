@@ -68,13 +68,33 @@ export interface PackageListOut {
   lead_filename: string | null;
   /** Final approval decision — "approved" | "rejected" | null */
   decision: string | null;
+  /**
+   * 1-line AI summary computed server-side (POR-151).
+   * e.g. "Capital Call · $2.5M due May 15 · 8 fields extracted · 99% confidence · 0 flags"
+   * If null, client builds a fallback from doc_type + confidence.
+   */
+  ai_summary: string | null;
+}
+
+/** Per-field extraction result from Claude Haiku classify pipeline. */
+export interface ExtractedField {
+  value: string | boolean | null;
+  confidence: number;
+  source_text: string | null;
 }
 
 export interface Classification {
   doc_type: DocType;
   confidence: number;
   key_indicators: string[];
+  /** Serialized per-field extraction — present when POR-151 backend has shipped. */
+  extracted_fields?: Record<string, ExtractedField>;
   model_version?: string;
+  /** Processing duration in milliseconds (POR-151). */
+  duration_ms?: number;
+  classification_error?: string | null;
+  /** Natural-language reasoning paragraph (POR-151). */
+  classification_reasoning?: string | null;
 }
 
 export interface DocumentDetail extends DocumentSummary {

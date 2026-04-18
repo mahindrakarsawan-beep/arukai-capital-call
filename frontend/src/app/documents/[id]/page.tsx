@@ -21,6 +21,7 @@ import { TopNav } from "@/components/TopNav";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { PackageDetailActions } from "./PackageDetailActions";
 import { SourceViewer } from "@/components/SourceViewer";
+import { AIAnalysisBlock } from "@/components/AIAnalysisBlock";
 import { resolvePackageState } from "@/lib/state";
 import type { DocumentDetail, User } from "@/lib/api";
 
@@ -139,7 +140,7 @@ export default async function DocumentDetailPage({ params }: Props) {
           )}
         </div>
 
-        {/* 4-block grid: 2×2 ≥lg, stacked on narrow */}
+        {/* 5-block grid: 2×2 ≥lg (AI Analysis spans full width), stacked on narrow */}
         <div className="grid gap-4 lg:grid-cols-2">
           {/* Block 1: Source document */}
           <div className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm">
@@ -220,7 +221,17 @@ export default async function DocumentDetailPage({ params }: Props) {
             )}
           </div>
 
-          {/* Block 3: Review notes */}
+          {/* Block 3: AI Analysis (POR-148) — full width across both columns */}
+          {classification && (
+            <div className="lg:col-span-2">
+              <AIAnalysisBlock
+                classification={classification}
+                analysedAt={doc.uploaded_at ?? new Date().toISOString()}
+              />
+            </div>
+          )}
+
+          {/* Block 4: Review notes */}
           <div className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm">
             <h2 className="mb-3 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
               Review notes
@@ -231,7 +242,7 @@ export default async function DocumentDetailPage({ params }: Props) {
             {/* Phase B: review notes input will be wired here by Drummer (B1) */}
           </div>
 
-          {/* Block 4: Audit trail */}
+          {/* Block 5: Audit trail */}
           <div className="rounded-lg border border-border-hairline bg-bg-bone p-5 shadow-sm">
             <h2 className="mb-3 font-interface text-xs font-medium uppercase tracking-widest text-fg-muted">
               Audit trail

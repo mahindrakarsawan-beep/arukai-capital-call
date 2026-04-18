@@ -1,16 +1,17 @@
 /**
- * PackageRow tests — POR-147 / ARU-17 A1
+ * PackageRow tests — POR-147 / ARU-17 A1 + POR-149
  * Covers:
  *   - Claim state variants: unclaimed shows "Claim to review"; claimed_by_you shows "Release claim"
  *   - Next-owner chip text renders per resolvePackageState
  *   - Last movement relative format (just now / Xh ago / Xd ago / date)
  *   - No CTA when claimStatus is null or claimed_by_other
+ *   - POR-149: AI summary line shows server summary, client fallback, or "Awaiting classification"
  */
 
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { PackageRow, formatDocType } from "@/components/PackageRow";
+import { PackageRow, formatDocType, buildClientSummary } from "@/components/PackageRow";
 import type { PackageRowPkg } from "@/components/PackageRow";
 
 const basePkg: PackageRowPkg = {
@@ -190,6 +191,107 @@ describe("PackageRow — decision recorded states", () => {
     };
     render(<PackageRow pkg={pkg} />);
     expect(screen.getByLabelText(/next owner/i)).toHaveTextContent(/rejected by/i);
+  });
+});
+
+// ─── POR-149: AI summary line ──────────────────────────────────────────────
+
+describe("PackageRow — AI summary line (POR-149)", () => {
+  it("renders the server-provided aiSummary string as the summary line", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      aiSummary: "Capital Call · $2.5M due May 15 · 8 fields extracted · 99% confidence · 0 flags",
+    };
+    render(<PackageRow pkg={pkg} />);
+    const summaryEl = screen.getByTestId("ai-summary-line");
+    expect(summaryEl).toHaveTextContent(
+      "Capital Call · $2.5M due May 15 · 8 fields extracted · 99% confidence · 0 flags"
+    );
+  });
+
+  it("falls back to client-built summary from docType + confidence when aiSummary is null", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      aiSummary: null,
+      docType: "capital_call_notice",
+      confidence: 0.92,
+    };
+    render(<PackageRow pkg={pkg} />);
+    const summaryEl = screen.getByTestId("ai-summary-line");
+    // Client fallback: "Capital Call Notice · 92% confidence"
+    expect(summaryEl).toHaveTextContent(/Capital Call Notice/);
+    expect(summaryEl).toHaveTextContent(/92% confidence/);
+  });
+
+  it('shows "Awaiting classification" in muted italic when aiSummary is null and no docType', () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      aiSummary: null,
+      docType: null,
+      confidence: null,
+    };
+    render(<PackageRow pkg={pkg} />);
+    const summaryEl = screen.getByTestId("ai-summary-line");
+    expect(summaryEl).toHaveTextContent(/awaiting classification/i);
+  });
+
+  it("summary line is always rendered (even for awaiting classification)", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      aiSummary: null,
+      docType: null,
+    };
+    render(<PackageRow pkg={pkg} />);
+    expect(screen.getByTestId("ai-summary-line")).toBeInTheDocument();
+  });
+
+  it("prefers server aiSummary over client fallback when both available", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      aiSummary: "Server summary string",
+      docType: "capital_call_notice",
+      confidence: 0.99,
+    };
+    render(<PackageRow pkg={pkg} />);
+    const summaryEl = screen.getByTestId("ai-summary-line");
+    expect(summaryEl).toHaveTextContent("Server summary string");
+    expect(summaryEl).not.toHaveTextContent(/Capital Call Notice/);
+  });
+});
+
+// ─── buildClientSummary helper ────────────────────────────────────────────
+
+describe("buildClientSummary helper (POR-149)", () => {
+  it("returns null when docType is null", () => {
+    const pkg: PackageRowPkg = { ...basePkg, docType: null };
+    expect(buildClientSummary(pkg)).toBeNull();
+  });
+
+  it("returns formatted docType + confidence when both present", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      docType: "capital_call_notice",
+      confidence: 0.92,
+    };
+    expect(buildClientSummary(pkg)).toBe("Capital Call Notice · 92% confidence");
+  });
+
+  it("returns formatted docType only when confidence is null", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      docType: "subscription_agreement",
+      confidence: null,
+    };
+    expect(buildClientSummary(pkg)).toBe("Subscription Agreement");
+  });
+
+  it("returns formatted docType only when confidence is 0", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      docType: "side_letter",
+      confidence: 0,
+    };
+    expect(buildClientSummary(pkg)).toBe("Side Letter");
   });
 });
 

@@ -19,6 +19,7 @@ import { Button } from "@/components/Button";
 import { StaleBanner } from "@/components/StaleBanner";
 import { IntakeCeremony } from "@/components/IntakeCeremony";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
+import type { IntakeStepData } from "@/components/IntakeCeremony";
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
 
@@ -41,12 +42,15 @@ export default function UploadPage() {
   const [ceremonyVisible, setCeremonyVisible] = useState(false);
   const [ceremonyStep, setCeremonyStep] = useState(1);
   const ceremonyRedirectRef = useRef<string | null>(null);
+  /** Real AI narration data fed into IntakeCeremony steps (POR-150). */
+  const [ceremonyStepData, setCeremonyStepData] = useState<IntakeStepData>({});
 
   // Step sequencer: advances ceremonyStep every STEP_MS, then redirects
   const runCeremony = useCallback(
-    (redirectTo: string) => {
+    (redirectTo: string, stepData?: IntakeStepData) => {
       const stepMs = reducedMotion ? STEP_MS_REDUCED : STEP_MS_FULL;
       ceremonyRedirectRef.current = redirectTo;
+      if (stepData) setCeremonyStepData(stepData);
       setCeremonyVisible(true);
       setCeremonyStep(1);
 
@@ -155,8 +159,52 @@ export default function UploadPage() {
       }
 
       const doc = await res.json();
+
+      // POR-150: Build real step narration data from upload response.
+      // The response may include classification immediately (sync pipeline)
+      // or may be async — in that case, classify step shows "Classifying…"
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const classification = doc.classification ?? (doc as any).documents?.[0]?.classification ?? null;
+
+      const extractedFields = classification?.extracted_fields
+        ? Object.entries(classification.extracted_fields as Record<string, unknown>)
+        : [];
+      const flaggedFields = extractedFields.filter(
+        ([, f]) => typeof (f as { confidence?: number }).confidence === "number" &&
+          ((f as { confidence: number }).confidence) < 0.5
+      );
+
+      const stepData: IntakeStepData = {
+        receive: {
+          filesize: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+          mimeType: file.type || "application/pdf",
+        },
+        classify: classification
+          ? {
+              docType: classification.doc_type
+                ? classification.doc_type
+                    .split("_")
+                    .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                    .join(" ")
+                : null,
+              confidence: classification.confidence ?? null,
+              pending: false,
+            }
+          : { pending: true },
+        extract: classification?.extracted_fields
+          ? {
+              totalFields: extractedFields.length,
+              maxFields: extractedFields.length,
+              flaggedCount: flaggedFields.length,
+            }
+          : null,
+        ready: {
+          nextOwner: "reviewer",
+        },
+      };
+
       // C1: Show intake ceremony overlay before redirect
-      runCeremony(`/documents/${doc.id}`);
+      runCeremony(`/documents/${doc.id}`, stepData);
     } catch (err) {
       setServerError(
         err instanceof Error ? err.message : "Package submitted. Intake in progress."
@@ -173,6 +221,7 @@ export default function UploadPage() {
         visible={ceremonyVisible}
         activeStep={ceremonyStep}
         reducedMotion={reducedMotion}
+        stepData={ceremonyStepData}
       />
       {/* Minimal nav */}
       <header className="border-b border-border-hairline bg-bg-bone sticky top-0">
