@@ -103,6 +103,61 @@ export interface DocumentDetail extends DocumentSummary {
   package_id?: string;
 }
 
+/** Nested classification + documents shape from GET /packages/{id}. */
+export interface DocumentWithClassification {
+  id: string;
+  filename: string;
+  classification: Classification | null;
+}
+
+export interface ReviewNote {
+  id: string;
+  body: string;
+  author_id: string;
+  created_at: string;
+}
+
+export interface Approval {
+  id: string;
+  action: "approved" | "rejected";
+  note?: string;
+  actor_id: string;
+  created_at: string;
+}
+
+/**
+ * PackageDetail — v0.2 shape from GET /packages/{id}.
+ * Replaces DocumentDetail for the package detail page.
+ */
+export interface PackageDetail {
+  id: string;
+  /** Display title (may equal lead filename when not set). */
+  title: string;
+  /** v0.2 state machine value — use this, NOT status. */
+  state: string;
+  legacy_status?: string;
+  /** Matches DocumentDetail.filename for breadcrumb/header usage. */
+  filename: string;
+  uploaded_by: string;
+  uploaded_at?: string;
+  created_at: string;
+  updated_at: string;
+  version: number;
+  claimed_by_user_id?: string | null;
+  claimed_at?: string | null;
+  exception_reason?: string | null;
+  last_moved_at?: string | null;
+  documents: DocumentWithClassification[];
+  review_notes: ReviewNote[];
+  audit_trail: AuditEvent[];
+  approval?: Approval | null;
+  // POR-151 top-level AI data
+  extracted_fields?: Record<string, ExtractedField> | null;
+  classification_reasoning?: string | null;
+  model_used?: string | null;
+  classification_duration_ms?: number | null;
+}
+
 export interface LoginResponse {
   access_token: string;
   token_type: string;
@@ -241,6 +296,10 @@ export async function listDocuments(
   return handleResponse<DocumentSummary[]>(res);
 }
 
+/**
+ * @deprecated Use getPackage() which hits the v0.2 /packages/{id} endpoint.
+ * Kept for backward compatibility with legacy /documents/{id} callers.
+ */
 export async function getDocument(
   id: string,
   token: string
@@ -250,6 +309,21 @@ export async function getDocument(
     cache: "no-store",
   });
   return handleResponse<DocumentDetail>(res);
+}
+
+/**
+ * GET /packages/{id} — v0.2 package detail.
+ * Returns PackageDetail with top-level state, documents[], and POR-151 AI data.
+ */
+export async function getPackage(
+  id: string,
+  token: string
+): Promise<PackageDetail> {
+  const res = await fetch(`${API_BASE}/packages/${id}`, {
+    headers: buildHeaders(token),
+    cache: "no-store",
+  });
+  return handleResponse<PackageDetail>(res);
 }
 
 export async function uploadDocument(

@@ -3,17 +3,18 @@
  * 4-block layout: Source document | Extracted facts | Review notes | Audit trail
  * Header: package title, state pill + next-owner chip, "Package submitted {date} by {actor}"
  *
- * BUG FIX: v0.1 read doc.classification but API returns doc.documents[0].classification
- * Fixed at line ~50: safe fallback to doc.documents?.[0]?.classification
- *
- * Attestation actions replaced inline approve/reject with AttestationModal trigger.
+ * v0.2 API contract fix (POR-same-class-as-146):
+ *   - GET /packages/{id} returns `state` not `status`
+ *   - classification lives at doc.documents[0].classification
+ *   - AI data (extracted_fields, classification_reasoning, model_used,
+ *     classification_duration_ms) is top-level on PackageDetail
  */
 
 import React from "react";
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { getToken } from "@/lib/auth";
-import { getDocument, getMe } from "@/lib/api";
+import { getPackage, getMe } from "@/lib/api";
 import { ClassificationBadge } from "@/components/ClassificationBadge";
 import { StatusPill } from "@/components/StatusPill";
 import { NextOwnerChip } from "@/components/NextOwnerChip";
@@ -23,7 +24,7 @@ import { PackageDetailActions } from "./PackageDetailActions";
 import { SourceViewer } from "@/components/SourceViewer";
 import { AIAnalysisBlock } from "@/components/AIAnalysisBlock";
 import { resolvePackageState } from "@/lib/state";
-import type { DocumentDetail, User } from "@/lib/api";
+import type { PackageDetail, User } from "@/lib/api";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -51,11 +52,11 @@ export default async function DocumentDetailPage({ params }: Props) {
     redirect("/");
   }
 
-  let doc: DocumentDetail | null = null;
+  let doc: PackageDetail | null = null;
   let user: User | null = null;
 
   try {
-    [user, doc] = await Promise.all([getMe(token), getDocument(id, token)]);
+    [user, doc] = await Promise.all([getMe(token), getPackage(id, token)]);
   } catch (err) {
     if (err instanceof Error && err.message.includes("404")) {
       notFound();
@@ -65,32 +66,34 @@ export default async function DocumentDetailPage({ params }: Props) {
 
   if (!doc) notFound();
 
-  // BUG FIX: v0.1 read doc.classification directly; API may return doc.documents[0].classification
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw = doc as any;
-  const classification =
-    doc.classification ??
-    raw.documents?.[0]?.classification ??
-    null;
+  // v0.2: classification lives at documents[0].classification (not top-level).
+  const classification = doc.documents?.[0]?.classification ?? null;
 
+  // v0.2: confidence comes from the nested classification; top-level extracted_fields
+  // and AI metadata come directly from PackageDetail.
+  const confidence = classification?.confidence ?? null;
+
+  // v0.2: use doc.state (not doc.status which is undefined on PackageDetailOut).
   const stateInfo = resolvePackageState(
-    doc.status,
-    doc.confidence,
+    doc.state,
+    confidence,
     undefined,
     undefined
   );
 
-  // Show action bar for approvers (admin/approver) on pending_review,
-  // and for reviewers on pending_review/under_review/intake_complete states.
+  // Show action bar for approvers on routed_for_approval,
+  // and for reviewers on intake_complete/under_review states.
   const isApprover = user?.role === "admin" || user?.role === "approver";
   const isReviewer = user?.role === "reviewer";
-  const canAttest = isApprover && doc.status === "pending_review";
+  const canAttest = isApprover && (
+    doc.state === "routed_for_approval" || doc.legacy_status === "pending_review"
+  );
   const showActions =
     canAttest ||
     (isReviewer &&
-      (doc.status === "pending_review" ||
-        doc.status === "approved" ||
-        doc.status === "rejected"));
+      (doc.state === "intake_complete" ||
+        doc.state === "under_review" ||
+        doc.state === "routed_for_approval"));
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -118,7 +121,7 @@ export default async function DocumentDetailPage({ params }: Props) {
               {doc.filename}
             </h1>
             <div className="flex items-center gap-2 flex-shrink-0">
-              <StatusPill status={doc.status} confidence={doc.confidence} />
+              <StatusPill status={doc.state as import("@/lib/api").DocumentStatus} confidence={confidence} />
               <NextOwnerChip stateInfo={stateInfo} />
             </div>
           </div>
@@ -164,9 +167,9 @@ export default async function DocumentDetailPage({ params }: Props) {
 
             {classification ? (
               <div className="flex flex-col gap-3">
-                {classification.model_version && (
+                {(classification.model_version ?? doc.model_used) && (
                   <p className="font-interface text-[10px] text-fg-muted">
-                    Extracted by {classification.model_version} on{" "}
+                    Extracted by {classification.model_version ?? doc.model_used} on{" "}
                     {doc.uploaded_at ? formatDateTime(doc.uploaded_at) : "—"}
                   </p>
                 )}
@@ -214,7 +217,7 @@ export default async function DocumentDetailPage({ params }: Props) {
               </div>
             ) : (
               <p className="font-interface text-sm text-fg-muted italic">
-                {doc.status === "pending_classification"
+                {doc.state === "submitted" || doc.legacy_status === "pending_classification"
                   ? "Intake in progress…"
                   : "No extracted facts available."}
               </p>
@@ -227,6 +230,10 @@ export default async function DocumentDetailPage({ params }: Props) {
               <AIAnalysisBlock
                 classification={classification}
                 analysedAt={doc.uploaded_at ?? new Date().toISOString()}
+                extractedFields={doc.extracted_fields ?? undefined}
+                reasoning={doc.classification_reasoning ?? undefined}
+                modelUsed={doc.model_used ?? undefined}
+                durationMs={doc.classification_duration_ms ?? undefined}
               />
             </div>
           )}
@@ -268,17 +275,17 @@ export default async function DocumentDetailPage({ params }: Props) {
               classification={classification?.doc_type ?? undefined}
               confidence={classification?.confidence ?? undefined}
               userRole={user?.role}
-              packageState={doc.status}
+              packageState={doc.state}
             />
           </div>
         )}
 
         {/* Terminal state banner */}
-        {(doc.status === "approved" || doc.status === "rejected") && (
+        {(doc.state === "decision_recorded" || doc.legacy_status === "approved" || doc.legacy_status === "rejected") && (
           <div className="mt-6 rounded-lg border border-border-hairline bg-bg-parchment px-5 py-4">
             <p className="font-interface text-sm text-fg-slate">
               Package closed. Decision recorded
-              {doc.status === "approved" ? " — Approved" : " — Rejected"}.
+              {doc.legacy_status === "rejected" ? " — Rejected" : " — Approved"}.
             </p>
           </div>
         )}

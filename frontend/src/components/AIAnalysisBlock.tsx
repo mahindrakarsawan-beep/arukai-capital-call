@@ -74,6 +74,26 @@ export interface AIAnalysisBlockProps {
   classification: Classification;
   /** ISO timestamp of the document upload — used for the date attribution line. */
   analysedAt: string;
+  /**
+   * Top-level extracted_fields from PackageDetail (POR-151).
+   * Takes priority over classification.extracted_fields when present.
+   */
+  extractedFields?: Record<string, import("@/lib/api").ExtractedField> | null;
+  /**
+   * Top-level classification_reasoning from PackageDetail.
+   * Takes priority over classification.classification_reasoning when present.
+   */
+  reasoning?: string | null;
+  /**
+   * Top-level model_used from PackageDetail (e.g. "mistral-small-latest").
+   * Falls back to classification.model_version, then "Claude Haiku".
+   */
+  modelUsed?: string | null;
+  /**
+   * Top-level classification_duration_ms from PackageDetail.
+   * Takes priority over classification.duration_ms when present.
+   */
+  durationMs?: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,17 +133,30 @@ function ExceptionCallout({ fieldName, confidence }: ExceptionCalloutProps) {
 // Main component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function AIAnalysisBlock({ classification, analysedAt }: AIAnalysisBlockProps) {
+export function AIAnalysisBlock({
+  classification,
+  analysedAt,
+  extractedFields: topLevelExtractedFields,
+  reasoning: topLevelReasoning,
+  modelUsed: topLevelModelUsed,
+  durationMs: topLevelDurationMs,
+}: AIAnalysisBlockProps) {
   // Defensive destructure: API may return null for optional fields on packages
   // classified before POR-151 shipped (old Haiku pipeline). Never crash on null.
   const {
     doc_type,
     confidence,
-    extracted_fields,
-    classification_reasoning,
+    extracted_fields: classificationExtractedFields,
+    classification_reasoning: classificationReasoning,
     model_version,
     duration_ms,
   } = classification;
+
+  // Top-level PackageDetail AI data takes priority over nested classification fields.
+  const extracted_fields = topLevelExtractedFields ?? classificationExtractedFields;
+  const classification_reasoning = topLevelReasoning ?? classificationReasoning;
+  const model_version_or_used = topLevelModelUsed ?? model_version;
+  const effective_duration_ms = topLevelDurationMs ?? duration_ms;
 
   // key_indicators may be null from old API responses even though the type says string[]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -131,20 +164,20 @@ export function AIAnalysisBlock({ classification, analysedAt }: AIAnalysisBlockP
     ? (classification as any).key_indicators
     : [];
 
-  // Reasoning: prefer server-generated, fall back to key_indicators synthesis
+  // Reasoning: prefer server-generated (top-level or nested), fall back to key_indicators synthesis
   const reasoning =
     classification_reasoning ??
     buildFallbackReasoning(doc_type, key_indicators);
 
   // Model display string
-  const modelLabel = model_version ?? "Claude Haiku";
+  const modelLabel = model_version_or_used ?? "Claude Haiku";
 
   // Duration display
   const durationLabel =
-    typeof duration_ms === "number"
-      ? duration_ms >= 1000
-        ? `${(duration_ms / 1000).toFixed(1)}s`
-        : `${duration_ms}ms`
+    typeof effective_duration_ms === "number"
+      ? effective_duration_ms >= 1000
+        ? `${(effective_duration_ms / 1000).toFixed(1)}s`
+        : `${effective_duration_ms}ms`
       : null;
 
   const dateLabel = formatDate(analysedAt);
