@@ -140,3 +140,71 @@ def test_download_requires_auth(client: TestClient):
     """Download without token → 401."""
     response = client.get("/documents/some-id/pdf")
     assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Ticket 1 regression: PackageListOut classification summary
+# ---------------------------------------------------------------------------
+
+def test_list_packages_includes_classification_fields(client: TestClient):
+    """GET /packages list response includes doc_type, confidence, filename per PackageListOut."""
+    token = _login(client, "reviewer@arukai.example", "reviewer123")
+
+    # Upload a package so there's at least one item with a document + classification
+    pdf = io.BytesIO(_make_pdf_bytes())
+    upload_resp = client.post(
+        "/packages/upload",
+        data={"title": "Classification Summary Test"},
+        files={"file": ("capital_call.pdf", pdf, "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert upload_resp.status_code == 201
+
+    # List packages
+    list_resp = client.get("/packages", headers={"Authorization": f"Bearer {token}"})
+    assert list_resp.status_code == 200
+    packages = list_resp.json()
+    assert isinstance(packages, list)
+    assert len(packages) >= 1
+
+    # Every item in the list must expose the new fields (they may be None for empty packages)
+    for pkg in packages:
+        assert "doc_type" in pkg, f"Missing doc_type in package {pkg.get('id')}"
+        assert "confidence" in pkg, f"Missing confidence in package {pkg.get('id')}"
+        assert "filename" in pkg, f"Missing filename in package {pkg.get('id')}"
+
+    # The package we just uploaded has a document — its fields must not be absent
+    uploaded_id = upload_resp.json()["id"]
+    uploaded_pkg = next((p for p in packages if p["id"] == uploaded_id), None)
+    assert uploaded_pkg is not None, "Uploaded package not found in list"
+    assert uploaded_pkg["filename"] == "capital_call.pdf"
+    # doc_type and confidence come from classification; may be None if classify returned fallback
+    # but the keys must always be present
+    assert "doc_type" in uploaded_pkg
+    assert "confidence" in uploaded_pkg
+
+
+def test_admin_sees_all_packages(client: TestClient):
+    """Admin sees ALL packages, not just their own uploads (inverted filter was a bug)."""
+    reviewer_token = _login(client, "reviewer@arukai.example", "reviewer123")
+    admin_token = _login(client, "admin@arukai.example", "admin123")
+
+    # Reviewer uploads a package
+    pdf = io.BytesIO(_make_pdf_bytes())
+    upload_resp = client.post(
+        "/packages/upload",
+        data={"title": "Reviewer Upload for Admin Visibility Test"},
+        files={"file": ("reviewer_doc.pdf", pdf, "application/pdf")},
+        headers={"Authorization": f"Bearer {reviewer_token}"},
+    )
+    assert upload_resp.status_code == 201
+    reviewer_pkg_id = upload_resp.json()["id"]
+
+    # Admin lists packages — must see the reviewer's package
+    admin_list = client.get("/packages", headers={"Authorization": f"Bearer {admin_token}"})
+    assert admin_list.status_code == 200
+    admin_pkg_ids = [p["id"] for p in admin_list.json()]
+    assert reviewer_pkg_id in admin_pkg_ids, (
+        f"Admin cannot see reviewer's package {reviewer_pkg_id}. "
+        f"Admin only sees: {admin_pkg_ids}"
+    )

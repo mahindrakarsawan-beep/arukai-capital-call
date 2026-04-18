@@ -87,6 +87,26 @@ class PackageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PackageListOut(BaseModel):
+    """Slimmed list response that includes classification summary from first document."""
+    id: str
+    title: str
+    state: str
+    legacy_status: Optional[str] = None
+    uploaded_by: str
+    claimed_by_user_id: Optional[str] = None
+    claimed_at: Optional[datetime] = None
+    last_moved_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    # Classification summary from first document's current classification
+    doc_type: Optional[str] = None
+    confidence: Optional[float] = None
+    filename: Optional[str] = None  # from first document
+
+    model_config = {"from_attributes": True}
+
+
 class ReviewNoteOut(BaseModel):
     id: str
     package_id: str
@@ -291,32 +311,67 @@ async def upload_package(
 # List packages
 # ---------------------------------------------------------------------------
 
-@router.get("", response_model=list[PackageOut])
-@legacy_router.get("", response_model=list[PackageOut])
+@router.get("", response_model=list[PackageListOut])
+@legacy_router.get("", response_model=list[PackageListOut])
 async def list_packages(
     state: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List packages with optional state filter. Role-scoped."""
-    q = select(Package)
+    """List packages with optional state filter. All roles see all packages.
+    Role gates ACTIONS (claim/attest), not visibility.
+    """
+    q = (
+        select(Package)
+        .options(
+            selectinload(Package.documents).selectinload(Document.classifications),
+        )
+    )
 
-    if current_user.role == "admin":
-        # Operator: see own packages only
-        q = q.where(Package.uploaded_by == current_user.id)
-    elif current_user.role == "reviewer":
-        # Reviewer: all packages
-        pass
-    else:
-        # Approver / others: all packages
-        pass
+    # Visibility: everyone sees all packages — role gates actions, not visibility
+    # (admin previously restricted to own uploads — that was inverted, now fixed)
 
     if state:
         q = q.where(Package.state == state)
 
     q = q.order_by(Package.created_at.desc())
     result = await db.execute(q)
-    return result.scalars().all()
+    packages = result.scalars().all()
+
+    out = []
+    for pkg in packages:
+        # Extract classification summary from first document's current classification
+        doc_type: Optional[str] = None
+        confidence: Optional[float] = None
+        filename: Optional[str] = None
+
+        if pkg.documents:
+            first_doc = pkg.documents[0]
+            filename = first_doc.filename
+            clf = _get_current_classification(first_doc)
+            if clf:
+                doc_type = clf.document_type
+                confidence = clf.confidence
+
+        out.append(
+            PackageListOut(
+                id=pkg.id,
+                title=pkg.title,
+                state=pkg.state,
+                legacy_status=pkg.legacy_status,
+                uploaded_by=pkg.uploaded_by,
+                claimed_by_user_id=pkg.claimed_by_user_id,
+                claimed_at=pkg.claimed_at,
+                last_moved_at=pkg.last_moved_at,
+                created_at=pkg.created_at,
+                updated_at=pkg.updated_at,
+                doc_type=doc_type,
+                confidence=confidence,
+                filename=filename,
+            )
+        )
+
+    return out
 
 
 # ---------------------------------------------------------------------------
