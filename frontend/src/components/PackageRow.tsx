@@ -17,14 +17,29 @@ import Link from "next/link";
 import { StatusPill } from "@/components/StatusPill";
 import { NextOwnerChip } from "@/components/NextOwnerChip";
 import { ClassificationBadge } from "@/components/ClassificationBadge";
+import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { resolvePackageState } from "@/lib/state";
 import { formatRelative } from "@/lib/format";
 import type { DocType, DocumentStatus } from "@/lib/api";
 import type { ClaimState } from "@/lib/state";
 
+/**
+ * Converts a snake_case doc_type string to readable title case.
+ * e.g. "capital_call_notice" → "Capital Call Notice"
+ */
+export function formatDocType(docType: string): string {
+  return docType
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export interface PackageRowPkg {
   id: string;
+  /** Display title (e.g. fund name or pkg.title from API). */
   title: string;
+  /** Subtitle — typically the raw filename, shown in fgMuted below title. */
+  subtitle?: string | null;
   state: DocumentStatus | string;
   confidence?: number | null;
   docType?: DocType | null;
@@ -77,14 +92,34 @@ export function PackageRow({ pkg, onClaimToggle }: PackageRowProps) {
         className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 hover:bg-bg-parchment transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg-slate"
         aria-label={`Open package ${pkg.title}`}
       >
-        {/* Identity column: title + classification — stacks on mobile, inline on md */}
-        <span className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 flex-1 min-w-0">
-          <span className="font-display text-base font-normal text-fg-obsidian truncate leading-snug">
-            {pkg.title}
+        {/* Identity column: doc type title + classification badge + subtitle — stacks on mobile */}
+        <span className="flex flex-col gap-0.5 flex-1 min-w-0">
+          {/* Title line: formatted doc type (or raw title) + classification badge + confidence inline */}
+          <span className="flex flex-row items-center gap-2 min-w-0">
+            <span className="font-display text-base font-normal text-fg-obsidian truncate leading-snug">
+              {pkg.docType ? formatDocType(pkg.docType) : pkg.title}
+            </span>
+            {pkg.docType && (
+              <span className="flex-shrink-0">
+                <ClassificationBadge docType={pkg.docType} />
+              </span>
+            )}
+            {typeof pkg.confidence === "number" && pkg.confidence > 0 && (
+              <span className="flex-shrink-0">
+                <ConfidenceBadge confidence={pkg.confidence} value={`${(pkg.confidence * 100).toFixed(0)}%`} />
+              </span>
+            )}
           </span>
-          {pkg.docType && (
-            <span className="sm:flex-shrink-0">
-              <ClassificationBadge docType={pkg.docType} />
+          {/* Subtitle: raw filename in muted tone */}
+          {pkg.subtitle && (
+            <span className="font-interface text-xs text-fg-muted truncate">
+              {pkg.subtitle}
+            </span>
+          )}
+          {/* Received timestamp */}
+          {pkg.lastMovement && (
+            <span className="font-interface text-xs text-fg-muted">
+              Received {formatRelative(pkg.lastMovement)}
             </span>
           )}
         </span>
@@ -98,14 +133,6 @@ export function PackageRow({ pkg, onClaimToggle }: PackageRowProps) {
             decisionDate={pkg.decisionDate}
           />
           <NextOwnerChip stateInfo={stateInfo} />
-
-          {/* Last movement — hidden on mobile, visible from md */}
-          <span
-            className="hidden md:inline font-interface text-xs text-fg-muted tabular-nums"
-            title={pkg.lastMovement ?? undefined}
-          >
-            {relativeTime}
-          </span>
         </span>
       </Link>
 

@@ -23,6 +23,10 @@ interface TopNavProps {
  */
 export function TopNav({ user, pendingAttestationCount }: TopNavProps) {
   const showAuditLedger = canViewAuditLedger(user?.role ?? null);
+  // "Begin intake" / upload is available to admin and operator only.
+  // Reviewer and approver roles do not upload packages.
+  const role = user?.role ?? null;
+  const showBeginIntake = role === null || role === "admin" || role === "operator";
 
   return (
     <header className="border-b border-border-hairline bg-bg-bone sticky top-0 z-10">
@@ -43,12 +47,14 @@ export function TopNav({ user, pendingAttestationCount }: TopNavProps) {
           >
             Console
           </Link>
-          <Link
-            href="/documents/upload"
-            className="font-interface text-sm text-fg-slate hover:text-fg-obsidian transition-colors duration-fast"
-          >
-            Begin intake
-          </Link>
+          {showBeginIntake && (
+            <Link
+              href="/documents/upload"
+              className="font-interface text-sm text-fg-slate hover:text-fg-obsidian transition-colors duration-fast"
+            >
+              Begin intake
+            </Link>
+          )}
           {/* Audit ledger: admin + approver only (S5) */}
           {showAuditLedger && (
             <Link

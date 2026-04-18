@@ -10,7 +10,7 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { PackageRow } from "@/components/PackageRow";
+import { PackageRow, formatDocType } from "@/components/PackageRow";
 import type { PackageRowPkg } from "@/components/PackageRow";
 
 const basePkg: PackageRowPkg = {
@@ -24,9 +24,10 @@ const basePkg: PackageRowPkg = {
 };
 
 describe("PackageRow — rendering", () => {
-  it("renders the package title", () => {
+  it("renders the formatted doc type as title when docType is provided", () => {
     render(<PackageRow pkg={basePkg} />);
-    expect(screen.getByText("Fund_III_Q2_capital_call.pdf")).toBeInTheDocument();
+    // basePkg has docType="capital_call_notice" → formatDocType → "Capital Call Notice"
+    expect(screen.getByText("Capital Call Notice")).toBeInTheDocument();
   });
 
   it("renders a link to the package detail page", () => {
@@ -123,31 +124,31 @@ describe("PackageRow — next-owner chip", () => {
 });
 
 describe("PackageRow — last movement format", () => {
-  it('renders "just now" for very recent timestamps', () => {
+  it('renders "Received just now" for very recent timestamps', () => {
     const pkg: PackageRowPkg = {
       ...basePkg,
       lastMovement: new Date(Date.now() - 30000).toISOString(), // 30s ago
     };
     render(<PackageRow pkg={pkg} />);
-    expect(screen.getByText("just now")).toBeInTheDocument();
+    expect(screen.getByText(/received just now/i)).toBeInTheDocument();
   });
 
-  it('renders "Xh ago" for timestamps within 24h', () => {
+  it('renders "Received Xh ago" for timestamps within 24h', () => {
     const pkg: PackageRowPkg = {
       ...basePkg,
       lastMovement: new Date(Date.now() - 5 * 3600000).toISOString(), // 5h ago
     };
     render(<PackageRow pkg={pkg} />);
-    expect(screen.getByText("5h ago")).toBeInTheDocument();
+    expect(screen.getByText(/received 5h ago/i)).toBeInTheDocument();
   });
 
-  it('renders "Xd ago" for timestamps within 30 days', () => {
+  it('renders "Received Xd ago" for timestamps within 30 days', () => {
     const pkg: PackageRowPkg = {
       ...basePkg,
       lastMovement: new Date(Date.now() - 3 * 86400000).toISOString(), // 3d ago
     };
     render(<PackageRow pkg={pkg} />);
-    expect(screen.getByText("3d ago")).toBeInTheDocument();
+    expect(screen.getByText(/received 3d ago/i)).toBeInTheDocument();
   });
 
   it("renders a short date for timestamps older than 30 days", () => {
@@ -156,19 +157,15 @@ describe("PackageRow — last movement format", () => {
       lastMovement: new Date(Date.now() - 40 * 86400000).toISOString(), // 40d ago
     };
     render(<PackageRow pkg={pkg} />);
-    // Expect a month/day formatted date (e.g. "Mar 7") in the time element
-    const timeEl = document.querySelector("span.tabular-nums");
-    expect(timeEl).not.toBeNull();
-    expect(timeEl?.textContent).not.toBe("—");
-    expect(timeEl?.textContent?.length).toBeGreaterThan(0);
+    // Expect "Received Mon D" format
+    expect(screen.getByText(/received \w+ \d+/i)).toBeInTheDocument();
   });
 
-  it('renders "—" when lastMovement is null', () => {
+  it("does not render the received timestamp when lastMovement is null", () => {
     const pkg: PackageRowPkg = { ...basePkg, lastMovement: null };
     render(<PackageRow pkg={pkg} />);
-    // The "—" fallback should appear in the md: hidden time element
-    // It won't be visible at jsdom default viewport but the text should be in DOM
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
+    // No "Received" timestamp when there's no lastMovement
+    expect(screen.queryByText(/received/i)).not.toBeInTheDocument();
   });
 });
 
@@ -193,5 +190,94 @@ describe("PackageRow — decision recorded states", () => {
     };
     render(<PackageRow pkg={pkg} />);
     expect(screen.getByLabelText(/next owner/i)).toHaveTextContent(/rejected by/i);
+  });
+});
+
+// ─── PackageRow identity — formatDocType + subtitle + confidence (#4) ─────────
+
+describe("formatDocType helper", () => {
+  it('converts "capital_call_notice" to "Capital Call Notice"', () => {
+    expect(formatDocType("capital_call_notice")).toBe("Capital Call Notice");
+  });
+
+  it('converts "subscription_agreement" to "Subscription Agreement"', () => {
+    expect(formatDocType("subscription_agreement")).toBe("Subscription Agreement");
+  });
+
+  it('converts "k1" to "K1"', () => {
+    expect(formatDocType("k1")).toBe("K1");
+  });
+
+  it("handles single-word doc types", () => {
+    expect(formatDocType("other")).toBe("Other");
+  });
+});
+
+describe("PackageRow — doc_type formatted title (#4)", () => {
+  it("shows formatted doc_type as title when docType is present", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      docType: "capital_call_notice",
+    };
+    render(<PackageRow pkg={pkg} />);
+    expect(screen.getByText("Capital Call Notice")).toBeInTheDocument();
+  });
+
+  it("falls back to pkg.title when docType is null", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      docType: null,
+      title: "Fund III Q2 Capital Call",
+    };
+    render(<PackageRow pkg={pkg} />);
+    expect(screen.getByText("Fund III Q2 Capital Call")).toBeInTheDocument();
+  });
+
+  it("shows subtitle (raw filename) in muted text when subtitle is provided", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      docType: "capital_call_notice",
+      subtitle: "Fund_III_Q2_capital_call.pdf",
+    };
+    render(<PackageRow pkg={pkg} />);
+    expect(screen.getByText("Fund_III_Q2_capital_call.pdf")).toBeInTheDocument();
+  });
+
+  it("shows 'Received Xh ago' timestamp when lastMovement is provided", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      lastMovement: new Date(Date.now() - 3 * 3600000).toISOString(), // 3h ago
+    };
+    render(<PackageRow pkg={pkg} />);
+    expect(screen.getByText(/received 3h ago/i)).toBeInTheDocument();
+  });
+
+  it("shows inline ConfidenceBadge when confidence > 0", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      confidence: 0.92,
+    };
+    render(<PackageRow pkg={pkg} />);
+    // ConfidenceBadge renders the percentage value
+    expect(screen.getByText("92%")).toBeInTheDocument();
+  });
+
+  it("does NOT show ConfidenceBadge when confidence is null", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      confidence: null,
+    };
+    render(<PackageRow pkg={pkg} />);
+    // No percentage text should appear
+    expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
+  });
+
+  it("does NOT show ConfidenceBadge when confidence is 0", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      confidence: 0,
+    };
+    render(<PackageRow pkg={pkg} />);
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
   });
 });
