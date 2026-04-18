@@ -3,8 +3,8 @@
  * TDD: failing tests committed before implementation (Miller gate).
  *
  * Tests:
- *  - Renders "Audit ledger" heading (Cormorant, §9.1)
- *  - Renders role-gate label "VISIBLE TO ADMINS AND APPROVERS ONLY"
+ *  - Renders "Governed record" heading (Cormorant, §9.1)
+ *  - Renders role-gate label "VISIBLE TO ADMINISTRATORS AND APPROVERS"
  *  - Shows role-gate message for reviewer role
  *  - Shows empty state when no events
  *  - Renders audit events table when data present
@@ -66,7 +66,7 @@ jest.mock("@/app/audit/AuditLedgerClient", () => ({
     <div data-testid="audit-ledger-client">
       <div data-testid="audit-filter-bar" />
       {initialItems.length === 0 ? (
-        <p>No audit events match your filters</p>
+        <p>No governed events match your criteria</p>
       ) : (
         <table>
           <thead>
@@ -86,7 +86,7 @@ jest.mock("@/app/audit/AuditLedgerClient", () => ({
           </tbody>
         </table>
       )}
-      <a href="/audit/export.csv">Export ledger (CSV)</a>
+      <a href="/audit/export.csv">Export governed record</a>
     </div>
   ),
 }));
@@ -123,18 +123,19 @@ describe("AuditPage — admin view", () => {
     });
   });
 
-  it('renders "Audit ledger" heading', async () => {
+  it('renders "Governed record" heading', async () => {
     const AuditPage = (await import("@/app/audit/page")).default;
     const jsx = await AuditPage({ searchParams: Promise.resolve({}) });
     render(jsx as React.ReactElement);
-    expect(screen.getByRole("heading", { name: /audit ledger/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /governed record/i })).toBeInTheDocument();
   });
 
-  it('renders role-gate label "VISIBLE TO ADMINS AND APPROVERS ONLY"', async () => {
+  it('renders role-gate label "VISIBLE TO ADMINISTRATORS AND APPROVERS"', async () => {
     const AuditPage = (await import("@/app/audit/page")).default;
     const jsx = await AuditPage({ searchParams: Promise.resolve({}) });
     render(jsx as React.ReactElement);
-    expect(screen.getByText(/visible to admins and approvers only/i)).toBeInTheDocument();
+    const matches = screen.getAllByText(/visible to administrators and approvers/i);
+    expect(matches.length).toBeGreaterThanOrEqual(1);
   });
 
   it("renders the filter bar", async () => {
@@ -149,7 +150,7 @@ describe("AuditPage — admin view", () => {
     const jsx = await AuditPage({ searchParams: Promise.resolve({}) });
     render(jsx as React.ReactElement);
     expect(
-      screen.getByRole("link", { name: /export ledger/i })
+      screen.getByRole("link", { name: /export governed record/i })
     ).toBeInTheDocument();
   });
 
@@ -186,7 +187,7 @@ describe("AuditPage — empty state", () => {
     const AuditPage = (await import("@/app/audit/page")).default;
     const jsx = await AuditPage({ searchParams: Promise.resolve({}) });
     render(jsx as React.ReactElement);
-    expect(screen.getByText(/no audit events match your filters/i)).toBeInTheDocument();
+    expect(screen.getByText(/no governed events match your criteria/i)).toBeInTheDocument();
   });
 });
 

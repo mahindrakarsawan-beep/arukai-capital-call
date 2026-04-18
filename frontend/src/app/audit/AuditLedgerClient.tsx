@@ -20,6 +20,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { AuditFilterBar, type AuditFilterValues } from "@/components/AuditFilterBar";
 import { AuditEntryRow } from "@/components/AuditEntryRow";
 import { listAuditEvents, getAuditExportUrl } from "@/lib/api";
+import { formatAuditAction } from "@/lib/format";
 import type { AuditEvent } from "@/lib/api";
 
 interface AuditLedgerClientProps {
@@ -122,7 +123,7 @@ export function AuditLedgerClient({
         <a
           href={exportUrl}
           download
-          className="inline-flex items-center gap-2 font-interface text-xs font-medium text-fg-muted border border-border-hairline rounded-full px-3 py-1.5 bg-transparent hover:text-fg-obsidian hover:border-fg-obsidian transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-slate"
+          className="inline-flex items-center gap-2 rounded-full border border-border-hairline text-fg-muted hover:text-fg-obsidian hover:border-fg-obsidian text-xs font-display tracking-wider uppercase px-4 py-2 bg-transparent transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-slate"
           aria-label="Export governed record as CSV"
         >
           <svg
@@ -142,8 +143,8 @@ export function AuditLedgerClient({
       {/* ── Desktop / Tablet table ── */}
       {items.length === 0 ? (
         <div className="rounded-lg border border-border-hairline bg-bg-parchment px-6 py-10 text-center">
-          <p className="font-interface text-sm text-fg-muted italic">
-            No audit events match your filters
+          <p className="font-display text-xl font-light text-fg-muted">
+            No governed events match your criteria
           </p>
         </div>
       ) : (
@@ -232,7 +233,7 @@ function AuditMobileCard({ event }: { event: AuditEvent }) {
   const actorType = event.actor_type ?? (event.actor_email ? "USER" : "SYSTEM");
   const actorLabel = event.actor_email ?? "System";
   const timestamp = event.created_at ? formatDateTime(event.created_at) : "—";
-  const actionLabel = (event.action ?? "").replace(/_/g, " ");
+  const actionLabel = formatAuditAction(event.action ?? "");
   const packageTitle = event.package_title ?? "—";
 
   return (
@@ -245,10 +246,10 @@ function AuditMobileCard({ event }: { event: AuditEvent }) {
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <p className="font-interface text-sm text-fg-obsidian capitalize truncate">
+            <p className="font-display text-sm font-light text-fg-obsidian truncate">
               {actionLabel}
             </p>
-            <p className="font-interface text-xs text-fg-muted tabular-nums mt-0.5">
+            <p className="font-mono text-xs text-fg-muted tabular-nums mt-0.5">
               {timestamp}
             </p>
           </div>

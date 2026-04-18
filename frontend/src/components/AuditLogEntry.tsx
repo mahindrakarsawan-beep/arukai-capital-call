@@ -1,4 +1,5 @@
 import React from "react";
+import { formatAuditAction } from "@/lib/format";
 
 export interface AuditEvent {
   id: string;
@@ -38,8 +39,8 @@ export function AuditLogEntry({ event }: AuditLogEntryProps) {
 
   return (
     <tr className="border-b border-border-hairline last:border-0">
-      <td className="px-4 py-2.5 font-interface text-sm text-fg-obsidian capitalize">
-        {action.replace(/_/g, " ")}
+      <td className="px-4 py-2.5 font-display text-sm font-light text-fg-obsidian">
+        {formatAuditAction(action)}
       </td>
       <td className="px-4 py-2.5 font-interface text-sm text-fg-slate">
         {actor}

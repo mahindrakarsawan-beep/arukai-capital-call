@@ -75,7 +75,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 lg:py-16 flex flex-col items-center justify-center text-center">
           {/* Hero with restricted heading */}
           <h1 className="font-display text-[32px] md:text-[40px] font-light text-fg-obsidian tracking-tight mb-3">
-            Audit ledger
+            Governed record
           </h1>
           <div className="mt-4 rounded-lg border border-[rgba(154,118,57,0.30)] bg-[rgba(154,118,57,0.06)] px-6 py-8 max-w-md">
             <p className="font-interface text-base font-semibold text-fg-obsidian mb-2">
@@ -138,12 +138,15 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-12 lg:py-16">
         {/* ── Hero ────────────────────────────────────────────────────────── */}
         <div className="mb-10 md:mb-12">
+          {/* Role-gate label — top-of-hero, muted micro-caps */}
+          <p className="mb-3 text-[10px] tracking-[0.15em] uppercase text-fg-muted">
+            Visible to administrators and approvers
+          </p>
           <h1 className="font-display text-[32px] md:text-[40px] font-light text-fg-obsidian tracking-tight leading-tight">
-            Audit ledger
+            Governed record
           </h1>
-          {/* Role-gate label — warningText tone per spec */}
-          <p className="mt-1 font-interface text-xs font-medium uppercase tracking-wider text-[#9A7639]">
-            Visible to admins and approvers only
+          <p className="mt-2 font-display text-sm font-light text-fg-muted tracking-wide">
+            Immutable decision trail · visible to administrators and approvers
           </p>
         </div>
 

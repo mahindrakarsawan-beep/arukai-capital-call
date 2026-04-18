@@ -1,5 +1,5 @@
 /**
- * Shared formatting utilities — date, time, number.
+ * Shared formatting utilities — date, time, number, audit actions.
  * Keep pure (no React, no DOM).
  */
 
@@ -22,6 +22,38 @@ export function formatRelative(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+/**
+ * Map raw backend audit action strings to governed display labels.
+ * Unmapped actions fall back to underscores-replaced-by-spaces (capitalised).
+ */
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  // Package lifecycle
+  upload_document: "Package received",
+  package_received: "Package received",
+  classify_document: "Classification recorded",
+  classification_recorded: "Classification recorded",
+  approve_document: "Decision attested",
+  decision_attested: "Decision attested",
+  attested_decision: "Decision attested",
+  attested_approval: "Approval attested",
+  reject_document: "Rejection recorded",
+  rejection_recorded: "Rejection recorded",
+  recorded_rejection: "Rejection recorded",
+  claimed_package: "Review claimed",
+  released_claim: "Claim released",
+  recorded_review_note: "Review note recorded",
+  transitioned_package: "Package transitioned",
+};
+
+export function formatAuditAction(action: string): string {
+  if (!action) return "—";
+  const mapped = AUDIT_ACTION_LABELS[action.toLowerCase()];
+  if (mapped) return mapped;
+  // Fallback: replace underscores, capitalise first letter
+  const words = action.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /**

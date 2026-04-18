@@ -54,13 +54,13 @@ export function AuditFilterBar({
   }
 
   const inputClass =
-    "w-full rounded-lg border border-border-hairline bg-bg-bone px-3 py-2.5 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:border-fg-slate focus:ring-1 focus:ring-fg-slate transition-colors duration-fast appearance-none";
+    "w-full bg-bg-bone border border-border-hairline rounded-xl px-4 py-3 font-interface text-sm text-fg-obsidian placeholder:text-fg-muted focus:outline-none focus:border-fg-slate focus:ring-1 focus:ring-fg-slate transition-colors duration-fast appearance-none";
 
-  const labelClass = "block font-interface text-xs font-medium uppercase tracking-wider text-fg-muted mb-1";
+  const labelClass = "block font-display text-sm font-light text-fg-muted mb-1.5";
 
   return (
     <div className="rounded-xl border border-border-hairline bg-bg-parchment p-6">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Filter by actor */}
         <div>
           <label htmlFor="audit-filter-actor" className={labelClass}>
@@ -123,22 +123,25 @@ export function AuditFilterBar({
       </div>
 
       {/* Action row */}
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-5 flex items-center gap-3">
         <button
           type="button"
           onClick={() => onApply(values)}
-          className="font-interface text-sm font-semibold bg-fg-obsidian text-bg-bone px-4 py-2 rounded transition-opacity duration-fast hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-slate"
+          className="font-display tracking-wider uppercase text-xs bg-fg-obsidian text-bg-bone px-4 py-2 rounded-xl transition-opacity duration-fast hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-slate"
         >
           Apply filters
         </button>
         <button
           type="button"
           onClick={handleClear}
-          className="font-interface text-sm text-fg-slate hover:text-fg-obsidian border border-border-hairline px-4 py-2 rounded transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-slate"
+          className="font-display tracking-wider uppercase text-xs text-fg-muted hover:text-fg-obsidian transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-slate"
         >
           Clear
         </button>
       </div>
+
+      {/* Subtle divider below filter bar */}
+      <div className="mt-6 border-t border-border-hairline" />
     </div>
   );
 }

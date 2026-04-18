@@ -16,6 +16,7 @@
 
 import React, { useState } from "react";
 import type { AuditEvent } from "@/lib/api";
+import { formatAuditAction } from "@/lib/format";
 
 interface AuditEntryRowProps {
   event: AuditEvent;
@@ -36,10 +37,6 @@ function formatDateTime(iso: string): string {
   }
 }
 
-function formatAction(action: string): string {
-  return action.replace(/_/g, " ");
-}
-
 function JsonBlock({
   label,
   value,
@@ -49,7 +46,7 @@ function JsonBlock({
 }) {
   return (
     <div>
-      <p className="font-interface text-xs font-medium uppercase tracking-wider text-fg-muted mb-1">
+      <p className="font-display text-sm font-light text-fg-muted mb-1">
         {label}
       </p>
       {value == null ? (
@@ -70,7 +67,7 @@ export function AuditEntryRow({ event }: AuditEntryRowProps) {
     event.actor_type ?? (event.actor_email ? "USER" : "SYSTEM");
   const actorLabel = event.actor_email ?? "System";
   const timestamp = event.created_at ? formatDateTime(event.created_at) : "—";
-  const actionLabel = formatAction(event.action ?? "unknown");
+  const actionLabel = formatAuditAction(event.action ?? "unknown");
   const packageTitle = event.package_title ?? "—";
 
   const actorBadgeClass =
@@ -85,27 +82,29 @@ export function AuditEntryRow({ event }: AuditEntryRowProps) {
         aria-expanded={expanded}
       >
         {/* Timestamp */}
-        <td className="px-4 py-3 font-interface text-xs tabular-nums text-fg-muted whitespace-nowrap">
+        <td className="px-4 py-3 font-mono text-xs tabular-nums text-fg-muted whitespace-nowrap">
           {timestamp}
         </td>
 
         {/* Actor */}
         <td className="px-4 py-3">
           <div className="flex flex-col gap-0.5">
+            <span className="font-interface text-xs text-fg-slate truncate max-w-[12rem]">
+              {actorLabel}
+            </span>
             <span
               className={`inline-flex w-fit items-center rounded-full px-1.5 py-0.5 font-interface text-[10px] font-medium uppercase tracking-wider ${actorBadgeClass}`}
             >
               {actorType}
             </span>
-            <span className="font-interface text-xs text-fg-slate truncate max-w-[12rem]">
-              {actorLabel}
-            </span>
           </div>
         </td>
 
-        {/* Action */}
-        <td className="px-4 py-3 font-interface text-sm text-fg-obsidian capitalize">
-          {actionLabel}
+        {/* Action — governed label as chip */}
+        <td className="px-4 py-3">
+          <span className="inline-flex items-center rounded-full border border-border-hairline bg-bg-parchment px-2.5 py-1 font-display text-xs font-light text-fg-obsidian tracking-wide whitespace-nowrap">
+            {actionLabel}
+          </span>
         </td>
 
         {/* Package */}
