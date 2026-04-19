@@ -8,8 +8,15 @@ services:
     environment:
       - DATABASE_URL=postgresql+psycopg://capital_call:capital_call@db:5432/capital_call
       - JWT_SECRET=local-dev-secret
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - APP_ENV=development
+      - OIDC_ISSUER_URL=http://authentik-server:9000/application/o/capital-call/
+      - OIDC_CLIENT_ID=capital-call-app
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_REDIRECT_URI=http://localhost:3000/auth/callback
+      - WINDMILL_BASE_URL=http://windmill-server:8100
+      - WINDMILL_TOKEN=${WINDMILL_TOKEN:-}
     depends_on:
       db:
         condition: service_healthy
@@ -43,5 +50,114 @@ services:
       timeout: 5s
       retries: 5
 
+  # --- Authentik (Identity + MFA) ---
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2024.12
+    command: server
+    ports:
+      - "9000:9000"
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-change-me-to-a-long-random-string}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2024.12
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-change-me-to-a-long-random-string}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+    depends_on:
+      authentik-server:
+        condition: service_healthy
+
+  authentik-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: authentik
+      POSTGRES_DB: authentik
+    volumes:
+      - authentik_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik -d authentik"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  authentik-redis:
+    image: redis:alpine
+    volumes:
+      - authentik_redis_data:/data
+
+  # --- Windmill (Workflow Engine) ---
+  windmill-server:
+    image: ghcr.io/windmill-labs/windmill:main
+    ports:
+      - "8100:8000"
+    environment:
+      DATABASE_URL: postgres://windmill:windmill@windmill-db:5432/windmill
+      MODE: server
+    depends_on:
+      windmill-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  windmill-worker:
+    image: ghcr.io/windmill-labs/windmill:main
+    environment:
+      DATABASE_URL: postgres://windmill:windmill@windmill-db:5432/windmill
+      MODE: worker
+      WORKER_GROUP: default
+    depends_on:
+      windmill-server:
+        condition: service_healthy
+
+  windmill-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: windmill
+      POSTGRES_PASSWORD: windmill
+      POSTGRES_DB: windmill
+    volumes:
+      - windmill_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U windmill -d windmill"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
+  authentik_db_data:
+  authentik_media:
+  authentik_templates:
+  authentik_redis_data:
+  windmill_db_data:
