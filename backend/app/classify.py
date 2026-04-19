@@ -323,7 +323,25 @@ async def classify_document_text(text: str, filename: str = "") -> Classificatio
 
     start = time.monotonic()
 
-    # Build provider chain — OpenAI only in dev/test (EU data sovereignty)
+    # Priority: local self-hosted > Mistral API > OpenAI (dev only) > heuristic
+    from app.local_llm import is_configured as local_configured, classify_with_local
+    if local_configured():
+        local_result = classify_with_local(text, filename, SYSTEM_PROMPT)
+        if local_result:
+            doc_type = local_result.get("document_type", "other")
+            confidence = float(local_result.get("confidence", 0.0))
+            duration_ms = local_result.get("duration_ms", 0)
+            return ClassificationResult(
+                document_type=doc_type,
+                confidence=confidence,
+                key_indicators=local_result.get("key_indicators", []),
+                model_version=local_result.get("model_version", "local"),
+                provider_used="local_llm",
+                fallback=False,
+                duration_ms=duration_ms,
+            )
+        logger.warning("Local LLM failed — falling back to Mistral API")
+
     app_env = os.environ.get("APP_ENV", "").lower()
     allow_openai = app_env in ("development", "test")
 
