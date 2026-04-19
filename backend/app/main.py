@@ -1,9 +1,10 @@
-"""FastAPI app factory — Arukai Capital Call v0.2 (POR-147 / ARU-17-B1)."""
+"""FastAPI app factory — Arukai Capital Call v0.2.1."""
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.db import init_db
 from app.routers import approvals, auth
@@ -86,6 +87,26 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Rate limiting (slowapi) — 429 on excess
+    try:
+        from slowapi import Limiter
+        from slowapi.util import get_remote_address
+        from slowapi.errors import RateLimitExceeded
+        from slowapi.middleware import SlowAPIMiddleware
+
+        limiter = Limiter(key_func=get_remote_address)
+        application.state.limiter = limiter
+        application.add_middleware(SlowAPIMiddleware)
+
+        @application.exception_handler(RateLimitExceeded)
+        async def _rate_limit_handler(request: Request, exc: RateLimitExceeded):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": f"Rate limit exceeded. Try again later."},
+            )
+    except ImportError:
+        pass  # slowapi not installed — skip rate limiting
 
     # Auth
     application.include_router(auth.router)

@@ -252,9 +252,15 @@ async def upload_package(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a PDF, create a package, run classification synchronously."""
+    from app.security import validate_pdf
+
     raw = await file.read()
     if len(raw) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
+
+    is_valid, reason = validate_pdf(raw, file.filename or "unknown.pdf")
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=reason)
 
     now = datetime.now(timezone.utc)
 
