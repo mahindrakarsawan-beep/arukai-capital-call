@@ -418,7 +418,7 @@ export async function transitionPackage(
   token: string,
   reason?: string
 ): Promise<void> {
-  const body: Record<string, string> = { next_state: nextState };
+  const body: Record<string, string> = { to_state: nextState };
   if (reason) body.reason = reason;
   const res = await fetch(`${API_BASE}/packages/${id}/transition`, {
     method: "POST",
