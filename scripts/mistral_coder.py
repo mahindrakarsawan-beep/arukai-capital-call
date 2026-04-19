@@ -45,14 +45,53 @@ def read_file_context(file_path: str, max_lines: int = MAX_CONTEXT_LINES) -> str
     return content
 
 
-def call_codestral(api_key: str, task: str, file_contexts: dict, max_tokens: int = 4000) -> dict:
+def call_codestral(api_key: str, task: str, file_contexts: dict, max_tokens: int = 4000, args=None) -> dict:
     """Send a coding task to Codestral."""
 
     context_block = ""
     for fname, content in file_contexts.items():
         context_block += f"\n--- {fname} ---\n{content}\n"
 
-    system = """You are a senior Python/TypeScript developer working on the Arukai Capital Call project.
+    tdd_mode = args.tdd if hasattr(args, 'tdd') else False
+
+    if tdd_mode:
+        system = """You are a senior Python/TypeScript developer practicing strict TDD.
+
+WORKFLOW (you MUST follow this order):
+1. FIRST write the failing test(s) — pytest style, clear assertions, edge cases covered
+2. THEN write the minimal implementation to make those tests pass
+3. Show tests BEFORE implementation in your output
+
+RULES:
+- Tests go in tests/ directory matching the module path
+- Use existing test patterns from the codebase context
+- Each test function tests ONE behavior
+- Include edge cases: null/None inputs, empty strings, invalid types, boundary values
+- Mock external dependencies (API calls, DB) — never hit real services
+- No unnecessary comments
+- Include all imports needed
+- Mark clearly: TESTS FIRST, then IMPLEMENTATION"""
+
+        user = f"""TASK: {task}
+
+EXISTING CODE CONTEXT:
+{context_block}
+
+Follow TDD strictly. Output in this order:
+
+1. FAILING TESTS:
+FILE: tests/<test_file>.py
+```python
+<test code>
+```
+
+2. IMPLEMENTATION (makes tests pass):
+FILE: <path>
+```python
+<code>
+```"""
+    else:
+        system = """You are a senior Python/TypeScript developer working on the Arukai Capital Call project.
 You write clean, production-quality code. Follow these rules:
 - No unnecessary comments (code should be self-documenting)
 - Use existing patterns from the codebase context provided
@@ -61,7 +100,7 @@ You write clean, production-quality code. Follow these rules:
 - Include any new imports needed
 - If creating a new file, show the complete file content"""
 
-    user = f"""TASK: {task}
+        user = f"""TASK: {task}
 
 EXISTING CODE CONTEXT:
 {context_block}
@@ -108,6 +147,7 @@ def main():
     parser.add_argument("--files", nargs="*", default=[], help="Context files to read")
     parser.add_argument("--output", help="Write output to file (default: stdout)")
     parser.add_argument("--review-only", action="store_true", help="Show output, don't write")
+    parser.add_argument("--tdd", action="store_true", help="TDD mode: generate failing tests first, then implementation")
     parser.add_argument("--key", default=os.environ.get("CODESTRAL_API_KEY", ""),
                         help="Codestral API key")
     parser.add_argument("--max-tokens", type=int, default=4000)
@@ -128,7 +168,7 @@ def main():
     print(f"  Context: {len(file_contexts)} files")
     print(f"  Sending to Codestral...\n")
 
-    result = call_codestral(args.key, args.task, file_contexts, args.max_tokens)
+    result = call_codestral(args.key, args.task, file_contexts, args.max_tokens, args)
 
     print(f"  Latency: {result['latency_s']}s")
     print(f"  Tokens: {result['input_tokens']} in / {result['output_tokens']} out")
