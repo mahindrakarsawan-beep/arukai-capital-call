@@ -33,6 +33,7 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
+    refresh_token: str = ""
     token_type: str = "bearer"
     user_id: str
     email: str
@@ -57,6 +58,10 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     token_hash = _hash_token(token)
 
     # Upsert: if a session with this hash exists (same-second login), reuse/restore it
+    from app.auth import create_refresh_token
+    refresh_token, refresh_expires = create_refresh_token()
+    refresh_hash = _hash_token(refresh_token)
+
     existing_result = await db.execute(
         select(Session).where(Session.token_hash == token_hash)
     )
@@ -65,13 +70,16 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         session = Session(
             user_id=user.id,
             token_hash=token_hash,
+            refresh_token_hash=refresh_hash,
             expires_at=expires_at,
+            refresh_expires_at=refresh_expires,
         )
         db.add(session)
     elif existing.revoked_at is not None:
-        # Re-activate a previously-revoked session (e.g. re-login within same second)
         existing.revoked_at = None
         existing.expires_at = expires_at
+        existing.refresh_token_hash = refresh_hash
+        existing.refresh_expires_at = refresh_expires
 
     audit = AuditEvent(
         actor_user_id=user.id,
@@ -84,6 +92,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     return LoginResponse(
         access_token=token,
+        refresh_token=refresh_token,
         user_id=user.id,
         email=user.email,
         role=user.role,
@@ -146,6 +155,9 @@ async def change_password(
     current_user.password_hash = hash_password(body.new_password)
     current_user.password_changed_at = datetime.now(timezone.utc)
 
+    from app.auth import revoke_all_sessions
+    await revoke_all_sessions(current_user.id, db)
+
     audit = AuditEvent(
         actor_user_id=current_user.id,
         action="password_changed",
@@ -154,7 +166,7 @@ async def change_password(
     db.add(audit)
     await db.commit()
 
-    return {"message": "Password changed successfully"}
+    return {"message": "Password changed. All sessions revoked — please re-login."}
 
 
 # ---------------------------------------------------------------------------

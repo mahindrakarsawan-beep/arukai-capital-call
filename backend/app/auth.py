@@ -15,7 +15,8 @@ from app.db import get_db
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRY_HOURS = 8
+JWT_EXPIRY_MINUTES = 15
+REFRESH_TOKEN_EXPIRY_DAYS = 7
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -49,8 +50,8 @@ def check_password_policy(password: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 def create_access_token(user_id: str, email: str, role: str) -> tuple[str, datetime]:
-    """Return (token, expires_at)."""
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS)
+    """Return (token, expires_at). Short-lived: 15 minutes."""
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRY_MINUTES)
     payload = {
         "sub": user_id,
         "email": email,
@@ -64,6 +65,25 @@ def create_access_token(user_id: str, email: str, role: str) -> tuple[str, datet
 def _hash_token(token: str) -> str:
     """SHA-256 of the raw token string for storage."""
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def create_refresh_token() -> tuple[str, datetime]:
+    """Return (opaque_token, expires_at). Long-lived: 7 days."""
+    import secrets
+    token = secrets.token_urlsafe(48)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRY_DAYS)
+    return token, expires_at
+
+
+async def revoke_all_sessions(user_id: str, db) -> None:
+    """Revoke all active sessions for a user (e.g., on password change)."""
+    from sqlalchemy import update as sa_update
+    from app.models import Session
+    await db.execute(
+        sa_update(Session)
+        .where(Session.user_id == user_id, Session.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
 
 
 def decode_token(token: str) -> dict:

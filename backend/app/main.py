@@ -2,10 +2,11 @@
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.auth import get_current_user
 from app.db import init_db
 from app.routers import approvals, auth
 from app.routers.packages import (
@@ -128,7 +129,27 @@ def create_app() -> FastAPI:
 
     @application.get("/health")
     async def health() -> dict:
-        return {"status": "ok", "service": "capital-call", "version": "0.2.0"}
+        return {"status": "ok", "service": "capital-call", "version": "0.2.1"}
+
+    @application.get("/metrics")
+    async def metrics():
+        from app.metrics import get_metrics_text
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(get_metrics_text(), media_type="text/plain")
+
+    @application.get("/health/detailed")
+    async def health_detailed(current_user=Depends(get_current_user)):
+        from app.metrics import get_detailed_health
+        return get_detailed_health()
+
+    @application.middleware("http")
+    async def metrics_middleware(request: Request, call_next):
+        import time as _time
+        from app.metrics import record_request
+        start = _time.time()
+        response = await call_next(request)
+        record_request(request.method, request.url.path, response.status_code, _time.time() - start)
+        return response
 
     return application
 
