@@ -1,4 +1,5 @@
-"""Auth router — login, logout, me."""
+"""Auth router — login, logout, me, OIDC."""
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -154,3 +155,149 @@ async def change_password(
     await db.commit()
 
     return {"message": "Password changed successfully"}
+
+
+# ---------------------------------------------------------------------------
+# OIDC integration (Keycloak / Zitadel)
+# ---------------------------------------------------------------------------
+
+class OIDCCallbackRequest(BaseModel):
+    code: str
+
+
+def _oidc_configured() -> bool:
+    return all([
+        os.environ.get("OIDC_ISSUER_URL"),
+        os.environ.get("OIDC_CLIENT_ID"),
+        os.environ.get("OIDC_CLIENT_SECRET"),
+        os.environ.get("OIDC_REDIRECT_URI"),
+    ])
+
+
+def _map_oidc_role(userinfo: dict) -> str:
+    """Map IdP groups/roles claim to local role. Default: reviewer."""
+    valid = {"admin", "reviewer", "approver"}
+    for claim in ("groups", "roles"):
+        for role in userinfo.get(claim, []):
+            if role in valid:
+                return role
+    return "reviewer"
+
+
+@router.get("/oidc/authorize")
+async def oidc_authorize():
+    if not _oidc_configured():
+        raise HTTPException(status_code=501, detail="OIDC integration not configured")
+
+    import urllib.parse
+    import urllib.request
+    import json
+
+    issuer = os.environ["OIDC_ISSUER_URL"].rstrip("/")
+    discovery_url = f"{issuer}/.well-known/openid-configuration"
+
+    try:
+        with urllib.request.urlopen(discovery_url, timeout=10) as resp:
+            config = json.loads(resp.read())
+        auth_endpoint = config["authorization_endpoint"]
+    except Exception:
+        raise HTTPException(status_code=502, detail="Failed to discover IdP endpoints")
+
+    params = urllib.parse.urlencode({
+        "client_id": os.environ["OIDC_CLIENT_ID"],
+        "redirect_uri": os.environ["OIDC_REDIRECT_URI"],
+        "scope": "openid email profile",
+        "response_type": "code",
+    })
+
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(f"{auth_endpoint}?{params}", status_code=307)
+
+
+@router.post("/oidc/callback")
+async def oidc_callback(
+    body: OIDCCallbackRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    if not _oidc_configured():
+        raise HTTPException(status_code=501, detail="OIDC integration not configured")
+
+    import urllib.request
+    import urllib.parse
+    import json
+
+    issuer = os.environ["OIDC_ISSUER_URL"].rstrip("/")
+
+    # Discover endpoints
+    try:
+        with urllib.request.urlopen(f"{issuer}/.well-known/openid-configuration", timeout=10) as resp:
+            config = json.loads(resp.read())
+    except Exception:
+        raise HTTPException(status_code=502, detail="Failed to discover IdP endpoints")
+
+    # Exchange code for tokens
+    token_data = urllib.parse.urlencode({
+        "grant_type": "authorization_code",
+        "code": body.code,
+        "redirect_uri": os.environ["OIDC_REDIRECT_URI"],
+        "client_id": os.environ["OIDC_CLIENT_ID"],
+        "client_secret": os.environ["OIDC_CLIENT_SECRET"],
+    }).encode()
+
+    try:
+        req = urllib.request.Request(config["token_endpoint"], data=token_data,
+                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            tokens = json.loads(resp.read())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to exchange authorization code")
+
+    access_token = tokens.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=400, detail="No access token in IdP response")
+
+    # Fetch userinfo
+    try:
+        req = urllib.request.Request(config["userinfo_endpoint"],
+                                     headers={"Authorization": f"Bearer {access_token}"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            userinfo = json.loads(resp.read())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to fetch user info from IdP")
+
+    email = userinfo.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="IdP did not return an email claim")
+
+    role = _map_oidc_role(userinfo)
+
+    # Create or update local user
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            email=email,
+            password_hash=hash_password(os.urandom(24).hex()),
+            role=role,
+        )
+        db.add(user)
+        await db.flush()
+    else:
+        user.role = role
+
+    # Issue local JWT
+    token, expires_at = create_access_token(user.id, user.email, user.role)
+    session = Session(user_id=user.id, token_hash=_hash_token(token), expires_at=expires_at)
+    db.add(session)
+
+    audit = AuditEvent(
+        actor_user_id=user.id,
+        action="oidc_login",
+        after_state={"email": email, "role": role, "idp": issuer},
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {"access_token": token, "token_type": "bearer",
+            "user_id": user.id, "email": user.email, "role": user.role}
