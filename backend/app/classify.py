@@ -10,8 +10,11 @@ Changes from v0.1 (Haiku):
 """
 import io
 import json
+import logging
 import os
 import time
+
+logger = logging.getLogger(__name__)
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -320,11 +323,14 @@ async def classify_document_text(text: str, filename: str = "") -> Classificatio
 
     start = time.monotonic()
 
-    # Build provider chain
+    # Build provider chain — OpenAI only in dev/test (EU data sovereignty)
+    app_env = os.environ.get("APP_ENV", "").lower()
+    allow_openai = app_env in ("development", "test")
+
     providers: list[tuple[str, str, str, str]] = []
     if MISTRAL_API_KEY:
         providers.append((MISTRAL_ENDPOINT, MISTRAL_API_KEY, MISTRAL_MODEL, "mistral"))
-    if OPENAI_API_KEY:
+    if OPENAI_API_KEY and allow_openai:
         providers.append((OPENAI_ENDPOINT, OPENAI_API_KEY, OPENAI_MODEL, "openai"))
 
     last_error: Optional[str] = None
@@ -386,6 +392,8 @@ async def classify_document_text(text: str, filename: str = "") -> Classificatio
             continue  # Try next provider
 
     # All providers failed — heuristic fallback
+    if not allow_openai:
+        logger.warning("Mistral classification failed — using heuristic fallback. No data sent to external providers.")
     duration_ms = int((time.monotonic() - start) * 1000)
     heuristic_type = _heuristic_type(filename, text)
     extracted_fields = None

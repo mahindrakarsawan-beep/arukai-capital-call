@@ -1,12 +1,7 @@
-"""Shared test fixtures v0.2 — in-memory SQLite DB + seeded test client.
-
-Updated for v0.2 (POR-147 / ARU-17-B1):
-- Uses in-memory SQLite (:memory:) to avoid stale schema issues
-- async_session fixture for direct DB tests (depends on db_init to ensure tables exist)
-- approver user seeded via main.py lifespan
-- LegacyPackageFactory retained for migration path tests (R14)
-"""
+"""Shared test fixtures v0.2 — in-memory SQLite DB + seeded test client."""
 import os
+
+os.environ.setdefault("APP_ENV", "test")
 
 import pytest
 from fastapi.testclient import TestClient
