@@ -1,4 +1,5 @@
 """FastAPI app factory — Arukai Capital Call v0.2 (POR-147 / ARU-17-B1)."""
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -23,28 +24,43 @@ async def lifespan(app: FastAPI):
 
 
 async def _seed_dev_users():
-    """Create admin + reviewer + approver seed users if they don't exist (idempotent)."""
+    """Create seed users. Random passwords in production, deterministic in test."""
+    import os
+    import secrets
     from sqlalchemy import select
 
     from app.auth import hash_password
     from app.db import AsyncSessionLocal
     from app.models import User
 
+    is_test = os.environ.get("APP_ENV") == "test" or "pytest" in sys.modules
+
+    # Test uses deterministic passwords so tests can login.
+    # Production uses cryptographically random passwords printed once.
+    test_passwords = {
+        "admin": "admin123",
+        "reviewer": "reviewer123",
+        "approver": "approver123",
+    }
+
     async with AsyncSessionLocal() as db:
-        for email, password, role in [
-            ("admin@arukai.example", "admin123", "admin"),
-            ("reviewer@arukai.example", "reviewer123", "reviewer"),
-            ("approver@arukai.example", "approver123", "approver"),
+        for email, role in [
+            ("admin@arukai.example", "admin"),
+            ("reviewer@arukai.example", "reviewer"),
+            ("approver@arukai.example", "approver"),
         ]:
             result = await db.execute(select(User).where(User.email == email))
             existing = result.scalar_one_or_none()
             if existing is None:
+                password = test_passwords[role] if is_test else secrets.token_urlsafe(24)
                 user = User(
                     email=email,
                     password_hash=hash_password(password),
                     role=role,
                 )
                 db.add(user)
+                if not is_test:
+                    print(f"[SEED] Created {role}: {email} / {password}")
         await db.commit()
 
 

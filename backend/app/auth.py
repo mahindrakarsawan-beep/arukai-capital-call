@@ -33,6 +33,17 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
+def check_password_policy(password: str) -> tuple[bool, str]:
+    """Enforce: min 12 chars, 1 uppercase, 1 digit. Returns (ok, reason)."""
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters"
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter"
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one number"
+    return True, ""
+
+
 # ---------------------------------------------------------------------------
 # Token helpers
 # ---------------------------------------------------------------------------

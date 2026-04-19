@@ -57,6 +57,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now
     )
+    password_changed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     packages: Mapped[list["Package"]] = relationship("Package", back_populates="uploader", foreign_keys="Package.uploaded_by")
     claimed_packages: Mapped[list["Package"]] = relationship("Package", back_populates="claimed_by_user", foreign_keys="Package.claimed_by_user_id")

@@ -8,14 +8,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
     _hash_token,
+    check_password_policy,
     create_access_token,
     get_current_user,
+    hash_password,
     verify_password,
 )
 from app.db import get_db
 from app.models import AuditEvent, Session, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class LoginRequest(BaseModel):
@@ -120,3 +127,30 @@ async def logout(
 @router.get("/me", response_model=MeResponse)
 async def me(current_user: User = Depends(get_current_user)):
     return MeResponse(id=current_user.id, email=current_user.email, role=current_user.role)
+
+
+@router.post("/change-password")
+async def change_password(
+    body: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    ok, reason = check_password_policy(body.new_password)
+    if not ok:
+        raise HTTPException(status_code=400, detail=reason)
+
+    current_user.password_hash = hash_password(body.new_password)
+    current_user.password_changed_at = datetime.now(timezone.utc)
+
+    audit = AuditEvent(
+        actor_user_id=current_user.id,
+        action="password_changed",
+        after_state={"email": current_user.email},
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {"message": "Password changed successfully"}
