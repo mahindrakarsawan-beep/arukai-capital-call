@@ -1,5 +1,9 @@
-"""Security utilities — PDF validation, rate limiting setup."""
+"""Security utilities — PDF validation, field encryption."""
+import base64
 import logging
+import os
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 logger = logging.getLogger(__name__)
 
@@ -24,3 +28,53 @@ def validate_pdf(content: bytes, filename: str) -> tuple[bool, str]:
         return False, "PDF contains embedded JavaScript (rejected for security)"
 
     return True, ""
+
+
+def _get_key(key: bytes | None) -> bytes | None:
+    """Resolve encryption key: explicit arg > env var > None (skip encryption)."""
+    if key is not None:
+        return key
+    key_b64 = os.environ.get("FIELD_ENCRYPTION_KEY")
+    if key_b64:
+        return base64.b64decode(key_b64)
+    return None
+
+
+def encrypt_field(value: str, key: bytes | None = None) -> str:
+    """AES-256-GCM encrypt. Returns base64(nonce + ciphertext_with_tag). No key = plaintext."""
+    if not isinstance(value, str):
+        raise TypeError("Value must be a string")
+
+    resolved = _get_key(key)
+    if resolved is None:
+        return value
+
+    if len(resolved) != 32:
+        raise ValueError("Encryption key must be 32 bytes (256 bits)")
+
+    nonce = os.urandom(12)
+    aesgcm = AESGCM(resolved)
+    ct = aesgcm.encrypt(nonce, value.encode(), None)
+    return base64.b64encode(nonce + ct).decode()
+
+
+def decrypt_field(ciphertext_b64: str, key: bytes | None = None) -> str:
+    """AES-256-GCM decrypt. No key = return as-is (plaintext passthrough)."""
+    if not isinstance(ciphertext_b64, str):
+        raise TypeError("Ciphertext must be a string")
+
+    resolved = _get_key(key)
+    if resolved is None:
+        return ciphertext_b64
+
+    if len(resolved) != 32:
+        raise ValueError("Encryption key must be 32 bytes (256 bits)")
+
+    try:
+        raw = base64.b64decode(ciphertext_b64)
+        nonce = raw[:12]
+        ct = raw[12:]
+        plaintext = AESGCM(resolved).decrypt(nonce, ct, None)
+        return plaintext.decode()
+    except Exception as e:
+        raise ValueError("Decryption failed — tampered data or wrong key") from e
