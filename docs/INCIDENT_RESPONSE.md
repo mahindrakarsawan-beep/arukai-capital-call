@@ -91,3 +91,15 @@ psql $DATABASE_URL -c "SELECT created_at, action, actor_user_id FROM audit_event
 - [ ] Stakeholders notified
 - [ ] Incident report written
 - [ ] Runbook updated if new failure mode discovered
+
+## Time-bound SLAs
+
+| Action | SLA | Owner |
+|--------|-----|-------|
+| Detect breach | 15 minutes (via monitoring alerts) | System |
+| Revoke all sessions | 5 minutes from detection | On-call |
+| Rotate compromised keys | 30 minutes from detection | On-call |
+| Notify client stakeholders | 1 hour from detection | Holden |
+| Root cause analysis | 24 hours | Squad |
+| Incident report | 48 hours | Miller |
+| Remediation deployed | 72 hours | Drummer |
