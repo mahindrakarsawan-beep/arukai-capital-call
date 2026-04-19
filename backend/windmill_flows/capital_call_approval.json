@@ -1,0 +1,72 @@
+{
+  "summary": "Capital Call Approval Workflow",
+  "description": "Governs the lifecycle of a capital call package: receive → classify → review → approve → record decision",
+  "value": {
+    "modules": [
+      {
+        "id": "receive_package",
+        "value": {
+          "type": "script",
+          "path": "f/receive_package",
+          "input_transforms": {
+            "package_id": {"type": "javascript", "expr": "flow_input.package_id"},
+            "uploaded_by": {"type": "javascript", "expr": "flow_input.uploaded_by"}
+          }
+        },
+        "summary": "Receive and register the capital call package"
+      },
+      {
+        "id": "classify_document",
+        "value": {
+          "type": "script",
+          "path": "f/classify_document",
+          "input_transforms": {
+            "package_id": {"type": "javascript", "expr": "flow_input.package_id"}
+          }
+        },
+        "summary": "AI classification — extract fields and assess confidence"
+      },
+      {
+        "id": "review_gate",
+        "value": {
+          "type": "approval",
+          "timeout": 604800,
+          "approvers": ["reviewer", "admin"],
+          "description": "Reviewer claims the package, reviews extracted data, and routes for approval"
+        },
+        "summary": "Human review gate — reviewer must claim and route"
+      },
+      {
+        "id": "approval_gate",
+        "value": {
+          "type": "approval",
+          "timeout": 604800,
+          "approvers": ["approver", "admin"],
+          "description": "Approver attests the decision with formal attestation language"
+        },
+        "summary": "Attestation gate — approver formally records decision"
+      },
+      {
+        "id": "record_decision",
+        "value": {
+          "type": "script",
+          "path": "f/record_decision",
+          "input_transforms": {
+            "package_id": {"type": "javascript", "expr": "flow_input.package_id"},
+            "approved": {"type": "javascript", "expr": "results.approval_gate.approved"},
+            "note": {"type": "javascript", "expr": "results.approval_gate.note"}
+          }
+        },
+        "summary": "Record the final decision in the audit trail"
+      }
+    ]
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "package_id": {"type": "string", "description": "UUID of the capital call package"},
+      "uploaded_by": {"type": "string", "description": "User ID who submitted the package"}
+    },
+    "required": ["package_id", "uploaded_by"]
+  }
+}
