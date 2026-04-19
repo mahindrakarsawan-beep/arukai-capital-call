@@ -3,7 +3,17 @@ import base64
 import os
 import pytest
 from unittest.mock import patch
+import app.security as security
 from app.security import encrypt_field, decrypt_field
+
+
+@pytest.fixture(autouse=True)
+def reset_cache():
+    security._encryption_key_cache = None
+    security._cache_resolved = False
+    yield
+    security._encryption_key_cache = None
+    security._cache_resolved = False
 
 
 @pytest.fixture
