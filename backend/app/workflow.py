@@ -21,7 +21,7 @@ class WorkflowManager:
         if self.uses_windmill:
             from app.windmill_client import windmill
             run_id = windmill.start_flow(
-                "f/capital-call-approval",
+                "f/approval/capital_call_approval",
                 {"package_id": package_id, "uploaded_by": uploaded_by}
             )
             if run_id:
