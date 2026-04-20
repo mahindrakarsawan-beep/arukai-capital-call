@@ -27,10 +27,32 @@ jest.mock("@/lib/api", () => ({
   listPackages: jest.fn().mockResolvedValue([]),
 }));
 
-// Mock next/navigation redirect
+// Mock next/navigation redirect (useRouter provided by global moduleNameMapper mock)
 jest.mock("next/navigation", () => ({
   redirect: jest.fn(),
   notFound: jest.fn(),
+  useRouter: () => ({ refresh: jest.fn(), push: jest.fn() }),
+}));
+
+// Mock NeedsReviewSection — it's a "use client" component with hooks; the server component
+// page tests exercise bucketing + section routing logic, not interactive claim CTAs.
+// Interactive claim tests live in NeedsReviewSection.test.tsx.
+jest.mock("@/components/NeedsReviewSection", () => ({
+  NeedsReviewSection: ({ docs }: { docs: unknown[] }) => {
+    const React = require("react");
+    return React.createElement(
+      "section",
+      null,
+      React.createElement("h2", null, "Needs review"),
+      React.createElement(
+        "span",
+        null,
+        docs.length === 0
+          ? "Nothing awaiting your review. Reviewer queue is clear."
+          : `${docs.length} package(s) awaiting review`
+      )
+    );
+  },
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
