@@ -89,12 +89,35 @@ export function resolvePackageState(
       };
 
     case "intake_complete":
+      if (claimState === "claimed_by_you") {
+        return {
+          uiState: "under_review",
+          pillLabel: "Under review · claimed by you",
+          pillTone: "neutral",
+          nextOwnerText: "Under review (claimed by you)",
+          nextOwnerDot: "neutral",
+          claimState: "claimed_by_you",
+        };
+      }
+      if (claimState === "claimed_by_other") {
+        const holder = reviewerName ?? "reviewer";
+        return {
+          uiState: "under_review",
+          pillLabel: `Under review · with ${holder}`,
+          pillTone: "neutral",
+          nextOwnerText: `Under review · with ${holder}`,
+          nextOwnerDot: "neutral",
+          claimState: "claimed_by_other",
+        };
+      }
+      // unclaimed or no claim info: show unclaimed so claim CTA appears
       return {
         uiState: "intake_complete",
         pillLabel: "Intake complete — ready for review",
         pillTone: "neutral",
         nextOwnerText: reviewerName ? `With ${reviewerName}` : "Awaiting reviewer",
         nextOwnerDot: "neutral",
+        claimState: "unclaimed",
       };
 
     case "under_review": {
@@ -184,6 +207,8 @@ export function resolvePackageState(
         pillTone: "amber",
         nextOwnerText: "Awaiting reviewer — exception flagged",
         nextOwnerDot: "amber",
+        // exception_surfaced is always claimable (no existing claim in this state)
+        claimState: claimState ?? "unclaimed",
       };
 
     // ── v0.1 legacy states (Phase A fallback) ─────────────────────────────

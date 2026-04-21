@@ -34,12 +34,28 @@ beforeEach(() => {
 });
 
 describe("PackageDetailActions — approver role, routed_for_approval state", () => {
-  it("shows Attest approval and Record rejection buttons", () => {
+  it("shows Attest approval and Record rejection buttons for approver on routed_for_approval", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="approver"
+        packageState="routed_for_approval"
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /attest approval/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /record rejection/i })
+    ).toBeInTheDocument();
+  });
+
+  it("shows Attest approval and Record rejection buttons for admin on routed_for_approval", () => {
     render(
       <PackageDetailActions
         {...baseProps}
         userRole="admin"
-        packageState="pending_review"
+        packageState="routed_for_approval"
       />
     );
     expect(
@@ -54,8 +70,8 @@ describe("PackageDetailActions — approver role, routed_for_approval state", ()
     render(
       <PackageDetailActions
         {...baseProps}
-        userRole="admin"
-        packageState="pending_review"
+        userRole="approver"
+        packageState="routed_for_approval"
       />
     );
     const btn = screen.getByRole("button", { name: /attest approval/i });
@@ -66,12 +82,23 @@ describe("PackageDetailActions — approver role, routed_for_approval state", ()
     render(
       <PackageDetailActions
         {...baseProps}
-        userRole="admin"
-        packageState="pending_review"
+        userRole="approver"
+        packageState="routed_for_approval"
       />
     );
     const btn = screen.getByRole("button", { name: /record rejection/i });
     expect(btn).not.toHaveStyle({ backgroundColor: "#B8914E" });
+  });
+
+  it("approver does NOT see claim buttons on routed_for_approval", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="approver"
+        packageState="routed_for_approval"
+      />
+    );
+    expect(screen.queryByRole("button", { name: /claim to review/i })).not.toBeInTheDocument();
   });
 });
 
@@ -229,5 +256,123 @@ describe("PackageDetailActions — no actions for terminal state", () => {
     expect(
       screen.queryByRole("button", { name: /claim/i })
     ).not.toBeInTheDocument();
+  });
+});
+
+// ─── New: intake_complete + exception_surfaced state tests ─────────────────────
+
+describe("PackageDetailActions — intake_complete state (reviewer)", () => {
+  it("shows Claim to review button for reviewer on intake_complete package", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="reviewer"
+        packageState="intake_complete"
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /claim to review/i })
+    ).toBeInTheDocument();
+  });
+
+  it("shows Claim to review button for reviewer on intake_complete (explicit unclaimed)", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="reviewer"
+        packageState="intake_complete"
+        claimState="unclaimed"
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /claim to review/i })
+    ).toBeInTheDocument();
+  });
+
+  it("shows Route for approval + Release claim for reviewer on intake_complete claimed_by_you", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="reviewer"
+        packageState="intake_complete"
+        claimState="claimed_by_you"
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /route for approval/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /release claim/i })
+    ).toBeInTheDocument();
+  });
+
+  it("approver sees NO buttons on intake_complete (not their turn)", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="approver"
+        packageState="intake_complete"
+      />
+    );
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+});
+
+describe("PackageDetailActions — admin role × state matrix", () => {
+  it("admin sees Claim to review on intake_complete", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="admin"
+        packageState="intake_complete"
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /claim to review/i })
+    ).toBeInTheDocument();
+  });
+
+  it("admin sees Claim to review on exception_surfaced", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="admin"
+        packageState="exception_surfaced"
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /claim to review/i })
+    ).toBeInTheDocument();
+  });
+
+  it("admin sees Attest approval on routed_for_approval (NOT claim)", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="admin"
+        packageState="routed_for_approval"
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /attest approval/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /claim to review/i })
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("PackageDetailActions — exception_surfaced state (reviewer)", () => {
+  it("shows Claim to review button for reviewer on exception_surfaced package", () => {
+    render(
+      <PackageDetailActions
+        {...baseProps}
+        userRole="reviewer"
+        packageState="exception_surfaced"
+      />
+    );
+    expect(
+      screen.getByRole("button", { name: /claim to review/i })
+    ).toBeInTheDocument();
   });
 });

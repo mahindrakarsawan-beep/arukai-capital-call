@@ -15,7 +15,7 @@ services:
       - OIDC_CLIENT_ID=capital-call-app
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_REDIRECT_URI=http://localhost:3000/auth/callback
-      - WINDMILL_BASE_URL=http://windmill-server:8100
+      - WINDMILL_BASE_URL=http://windmill-server:8000
       - WINDMILL_TOKEN=${WINDMILL_TOKEN:-}
     depends_on:
       db:

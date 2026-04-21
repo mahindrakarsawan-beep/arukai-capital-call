@@ -81,19 +81,43 @@ export default async function DocumentDetailPage({ params }: Props) {
     undefined
   );
 
-  // Show action bar for approvers on routed_for_approval,
-  // and for reviewers on intake_complete/under_review states.
-  const isApprover = user?.role === "admin" || user?.role === "approver";
-  const isReviewer = user?.role === "reviewer";
-  const canAttest = isApprover && (
+  // Show action bar per role × state matrix (spec §6.5).
+  const isApproverRole = user?.role === "approver";
+  const isAdminRole = user?.role === "admin";
+  const isReviewerRole = user?.role === "reviewer";
+
+  // Approver / admin attest on routed_for_approval (or legacy pending_review)
+  const canAttest = (isApproverRole || isAdminRole) && (
     doc.state === "routed_for_approval" || doc.legacy_status === "pending_review"
   );
-  const showActions =
-    canAttest ||
-    (isReviewer &&
-      (doc.state === "intake_complete" ||
-        doc.state === "under_review" ||
-        doc.state === "routed_for_approval"));
+  // Reviewer / admin can claim on intake_complete, under_review, exception_surfaced
+  const canClaim =
+    (isReviewerRole || isAdminRole) &&
+    (doc.state === "intake_complete" ||
+      doc.state === "under_review" ||
+      doc.state === "exception_surfaced" ||
+      doc.state === "pending_review");
+
+  const showActions = canAttest || canClaim;
+
+  // Derive claimState from package fields when available.
+  // claimed_by_user_id comes from PackageDetail when backend has shipped it.
+  const claimState = (() => {
+    if (!canClaim) return undefined;
+    if (doc.claimed_by_user_id && user?.id) {
+      if (doc.claimed_by_user_id === user.id) return "claimed_by_you" as const;
+      return "claimed_by_other" as const;
+    }
+    // No claimant: treat as unclaimed for intake_complete and exception_surfaced
+    if (
+      doc.state === "intake_complete" ||
+      doc.state === "exception_surfaced" ||
+      doc.state === "pending_review"
+    ) {
+      return "unclaimed" as const;
+    }
+    return undefined;
+  })();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -276,6 +300,7 @@ export default async function DocumentDetailPage({ params }: Props) {
               confidence={classification?.confidence ?? undefined}
               userRole={user?.role}
               packageState={doc.state}
+              claimState={claimState}
             />
           </div>
         )}

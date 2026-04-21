@@ -114,14 +114,14 @@ describe("releasePackage", () => {
 });
 
 describe("transitionPackage", () => {
-  it("posts to /packages/{id}/transition with next_state", async () => {
+  it("posts to /packages/{id}/transition with to_state", async () => {
     mockFetchOk({});
     await transitionPackage(PKG_ID, "routed_for_approval", TOKEN);
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining(`/packages/${PKG_ID}/transition`),
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ next_state: "routed_for_approval" }),
+        body: JSON.stringify({ to_state: "routed_for_approval" }),
       })
     );
   });
@@ -133,7 +133,7 @@ describe("transitionPackage", () => {
       expect.stringContaining(`/packages/${PKG_ID}/transition`),
       expect.objectContaining({
         body: JSON.stringify({
-          next_state: "under_review",
+          to_state: "under_review",
           reason: "Returning for revision",
         }),
       })

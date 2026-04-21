@@ -7,7 +7,7 @@
         "id": "receive_package",
         "value": {
           "type": "script",
-          "path": "f/receive_package",
+          "path": "f/scripts/receive_package",
           "input_transforms": {
             "package_id": {"type": "javascript", "expr": "flow_input.package_id"},
             "uploaded_by": {"type": "javascript", "expr": "flow_input.uploaded_by"}
@@ -19,7 +19,7 @@
         "id": "classify_document",
         "value": {
           "type": "script",
-          "path": "f/classify_document",
+          "path": "f/scripts/classify_document",
           "input_transforms": {
             "package_id": {"type": "javascript", "expr": "flow_input.package_id"}
           }
@@ -29,20 +29,42 @@
       {
         "id": "review_gate",
         "value": {
-          "type": "approval",
+          "type": "identity"
+        },
+        "suspend": {
+          "required_events": 1,
           "timeout": 604800,
-          "approvers": ["reviewer", "admin"],
-          "description": "Reviewer claims the package, reviews extracted data, and routes for approval"
+          "resume_form": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "approved": {"type": "boolean", "description": "Whether the review passes"},
+                "note": {"type": "string", "description": "Reviewer notes"}
+              },
+              "required": ["approved"]
+            }
+          }
         },
         "summary": "Human review gate — reviewer must claim and route"
       },
       {
         "id": "approval_gate",
         "value": {
-          "type": "approval",
+          "type": "identity"
+        },
+        "suspend": {
+          "required_events": 1,
           "timeout": 604800,
-          "approvers": ["approver", "admin"],
-          "description": "Approver attests the decision with formal attestation language"
+          "resume_form": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "approved": {"type": "boolean", "description": "Formal attestation decision"},
+                "note": {"type": "string", "description": "Attestation notes"}
+              },
+              "required": ["approved"]
+            }
+          }
         },
         "summary": "Attestation gate — approver formally records decision"
       },
@@ -50,11 +72,11 @@
         "id": "record_decision",
         "value": {
           "type": "script",
-          "path": "f/record_decision",
+          "path": "f/scripts/record_decision",
           "input_transforms": {
             "package_id": {"type": "javascript", "expr": "flow_input.package_id"},
-            "approved": {"type": "javascript", "expr": "results.approval_gate.approved"},
-            "note": {"type": "javascript", "expr": "results.approval_gate.note"}
+            "approved": {"type": "javascript", "expr": "resume.approved"},
+            "note": {"type": "javascript", "expr": "resume.note || ''"}
           }
         },
         "summary": "Record the final decision in the audit trail"

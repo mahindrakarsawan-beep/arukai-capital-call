@@ -93,21 +93,39 @@ export function PackageDetailActions({
     return null;
   }
 
-  const isApprover = userRole === "admin" || userRole === "approver";
+  const isApprover = userRole === "approver";
   const isReviewer = userRole === "reviewer";
+  const isAdmin = userRole === "admin";
 
-  // Approver sees attest/reject (when package is routed for approval or pending_review in v0.1)
-  const showApproverActions =
-    isApprover &&
-    (packageState === "pending_review" ||
-      packageState === "routed_for_approval");
+  // States where package awaits attestation (approver/admin action)
+  const isAwaitingAttestation =
+    packageState === "routed_for_approval";
+  // States where package awaits claim / routing (reviewer/admin action)
+  // Note: legacy "pending_review" maps to intake_complete in v0.2
+  const isAwaitingClaim =
+    packageState === "pending_review" ||
+    packageState === "under_review" ||
+    packageState === "intake_complete" ||
+    packageState === "exception_surfaced";
 
-  // Reviewer sees claim/release/route buttons
+  // Approver sees attest/reject only on routed_for_approval.
+  // Admin can attest on routed_for_approval OR claim on earlier states — mutually exclusive.
+  const showApproverActions = (isApprover || isAdmin) && isAwaitingAttestation;
+
+  // Reviewer/admin sees claim/release/route on earlier states.
+  // Admin only sees claim actions when NOT at routed_for_approval (where attest takes priority).
   const showReviewerActions =
-    isReviewer &&
-    (packageState === "pending_review" ||
-      packageState === "under_review" ||
-      packageState === "intake_complete");
+    (isReviewer || isAdmin) && isAwaitingClaim && !isAwaitingAttestation;
+
+  // Effective claim state: when state is intake_complete or exception_surfaced and
+  // no claimState provided, treat as unclaimed so buttons appear.
+  const effectiveClaimState: ClaimState | null =
+    claimState ??
+    (packageState === "intake_complete" ||
+      packageState === "exception_surfaced" ||
+      packageState === "pending_review"
+      ? "unclaimed"
+      : null);
 
   async function handleClaim() {
     setActionLoading("claim");
@@ -199,19 +217,19 @@ export function PackageDetailActions({
           </>
         )}
 
-        {/* Reviewer actions */}
+        {/* Reviewer/admin claim actions */}
         {showReviewerActions && (
           <>
             <p className="mb-4 font-interface text-sm text-fg-slate">
-              {claimState === "unclaimed"
+              {effectiveClaimState === "unclaimed"
                 ? "Claim this package to begin your review."
-                : claimState === "claimed_by_you"
+                : effectiveClaimState === "claimed_by_you"
                 ? "You have claimed this package. Record review notes before routing for approval."
                 : "This package is under review."}
             </p>
             <div className="flex flex-wrap gap-3">
               {/* Claim to review — shown for unclaimed packages */}
-              {claimState === "unclaimed" && (
+              {(effectiveClaimState === "unclaimed" || effectiveClaimState === null) && (
                 <button
                   type="button"
                   onClick={handleClaim}
@@ -229,8 +247,8 @@ export function PackageDetailActions({
                 </button>
               )}
 
-              {/* Release claim — shown when claimed by current user */}
-              {claimState === "claimed_by_you" && (
+              {/* Release claim + Route for approval — shown when claimed by current user */}
+              {effectiveClaimState === "claimed_by_you" && (
                 <>
                   <button
                     type="button"

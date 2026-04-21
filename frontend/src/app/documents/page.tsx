@@ -20,6 +20,7 @@ import { TopNav } from "@/components/TopNav";
 import { StaleBanner } from "@/components/StaleBanner";
 import { Button } from "@/components/Button";
 import { PackageRow } from "@/components/PackageRow";
+import { NeedsReviewSection } from "@/components/NeedsReviewSection";
 import { resolvePackageState } from "@/lib/state";
 import type { PackageListOut, User } from "@/lib/api";
 import type { PackageRowPkg } from "@/components/PackageRow";
@@ -282,22 +283,11 @@ export default async function DocumentsPage() {
     );
 
     const needsReviewSection = (
-      <ConsoleSection
+      <NeedsReviewSection
         key="needs_review"
-        title="Needs review"
-        count={needsReview.length}
-        emptyState="Nothing awaiting your review. Reviewer queue is clear."
         docs={needsReview}
-        stickyHeader={isReviewer}
-        // Reviewers get claim CTAs via onClaimToggle; approvers do not
-        onClaimToggle={
-          isReviewer
-            ? (_id: string, _action: "claim" | "release") => {
-                // Phase B: wire to claimPackage / releasePackage API calls
-                // For now, the claim CTA is shown via PackageRow's claimStatus logic
-              }
-            : undefined
-        }
+        canClaim={isReviewer || role === "admin"}
+        currentUserId={user?.id ?? null}
       />
     );
 

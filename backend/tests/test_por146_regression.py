@@ -22,6 +22,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+# Repo root = backend/tests/this_file.py -> parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FRONTEND_API_TS = REPO_ROOT / "frontend" / "src" / "lib" / "api.ts"
+FRONTEND_UPLOAD_PAGE = REPO_ROOT / "frontend" / "src" / "app" / "documents" / "upload" / "page.tsx"
+BACKEND_CLASSIFY = REPO_ROOT / "backend" / "app" / "classify.py"
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -63,7 +69,7 @@ class TestBug1LocalhostNotBaked:
     hard-coded string in a fetch() call.
     """
 
-    API_TS = Path("/home/sawan/arukai-capital-call/frontend/src/lib/api.ts")
+    API_TS = FRONTEND_API_TS
 
     def test_api_ts_exists(self):
         assert self.API_TS.exists(), f"api.ts not found at {self.API_TS}"
@@ -89,9 +95,7 @@ class TestBug1LocalhostNotBaked:
 
     def test_no_hardcoded_localhost_in_upload_page(self):
         """Upload page also had a direct localhost reference in v0.1."""
-        upload_page = Path(
-            "/home/sawan/arukai-capital-call/frontend/src/app/documents/upload/page.tsx"
-        )
+        upload_page = FRONTEND_UPLOAD_PAGE
         if not upload_page.exists():
             pytest.skip("Upload page not found")
         src = upload_page.read_text()
@@ -359,7 +363,7 @@ class TestBug6ErrorResponsesAreReactSafe:
 
     def test_api_ts_handles_array_detail(self):
         """api.ts handleResponse must have Array.isArray guard."""
-        api_ts = Path("/home/sawan/arukai-capital-call/frontend/src/lib/api.ts")
+        api_ts = FRONTEND_API_TS
         src = api_ts.read_text()
         assert "Array.isArray" in src, (
             "BUG-6 REGRESSION: api.ts handleResponse does not have Array.isArray guard. "
@@ -427,9 +431,7 @@ class TestBug7UploadSendsTitleField:
 
     def test_frontend_upload_page_appends_title(self):
         """Upload page source must have form.append('title', ...) before fetch."""
-        upload_page = Path(
-            "/home/sawan/arukai-capital-call/frontend/src/app/documents/upload/page.tsx"
-        )
+        upload_page = FRONTEND_UPLOAD_PAGE
         if not upload_page.exists():
             pytest.skip("Upload page not found")
         src = upload_page.read_text()
@@ -453,7 +455,7 @@ class TestBug8HaikuModelId:
     """
 
     EXPECTED_MODEL_ID = "mistral-small-latest"
-    CLASSIFY_MODULE = Path("/home/sawan/arukai-capital-call/backend/app/classify.py")
+    CLASSIFY_MODULE = BACKEND_CLASSIFY
 
     def test_classify_module_uses_correct_model_id(self):
         """classify.py must define MISTRAL_MODEL = 'mistral-small-latest' (POR-151)."""
