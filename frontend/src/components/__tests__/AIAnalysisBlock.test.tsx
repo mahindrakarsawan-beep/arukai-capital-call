@@ -197,7 +197,8 @@ describe("AIAnalysisBlock — extraction table", () => {
       />
     );
     expect(screen.getByText("$2,500,000")).toBeInTheDocument();
-    expect(screen.getByText("2026-05-15")).toBeInTheDocument();
+    // POR-161 #2: due_date now renders formatted ("May 15, 2026") not ISO
+    expect(screen.getByText("May 15, 2026")).toBeInTheDocument();
     expect(screen.getByText("Fund III")).toBeInTheDocument();
     expect(screen.getByText("Arukai LP")).toBeInTheDocument();
   });

@@ -156,6 +156,10 @@ export interface PackageDetail {
   classification_reasoning?: string | null;
   model_used?: string | null;
   classification_duration_ms?: number | null;
+  // POR-161: uploader's email, joined server-side. Frontend derives a display
+  // name (local-part, capitalized) for the "Package submitted by …" subtitle
+  // instead of rendering the raw UUID.
+  uploaded_by_email?: string | null;
 }
 
 export interface LoginResponse {

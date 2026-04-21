@@ -254,9 +254,10 @@ describe("DocumentDetailPage — POR-151 top-level AI data wiring", () => {
     const { getMe } = require("@/lib/api");
     getMe.mockResolvedValue({ id: "u1", email: "alice@test.com", role: "admin" });
     await renderDetailPage(makePackageDetail());
-    // The AIAnalysisBlock extraction table should render these fields
+    // The AIAnalysisBlock extraction table should render these fields.
+    // POR-161 #2: due_date now renders formatted ("May 15, 2026"), not ISO.
     expect(screen.getByText("$2,500,000")).toBeInTheDocument();
-    expect(screen.getByText("2026-05-15")).toBeInTheDocument();
+    expect(screen.getByText("May 15, 2026")).toBeInTheDocument();
   });
 
   it("renders model_used from top-level PackageDetail (e.g. mistral-small-latest)", async () => {
