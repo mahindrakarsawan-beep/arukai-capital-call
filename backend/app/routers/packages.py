@@ -167,30 +167,43 @@ class ClaimRequest(BaseModel):
 
 
 # ── Intake-status response models (POR-159 19d.2) ──────────────────────────────
+# The frontend IntakeStepData interface uses camelCase per JS convention.
+# Pydantic fields stay snake_case for Python ergonomics; alias_generator emits
+# camelCase over the wire. Without this, the FE poll silently reads undefined
+# for every field and the ceremony falls back to cosmetic labels — the exact
+# fake-AI problem 19d exists to fix (caught by Miller in re-gate bounce-back).
 
-class IntakeStepReceive(BaseModel):
+from pydantic import ConfigDict
+from pydantic.alias_generators import to_camel
+
+
+class _CamelModel(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
+class IntakeStepReceive(_CamelModel):
     filesize: Optional[str] = None       # human-readable, e.g. "2.4 MB"
-    mime_type: Optional[str] = None      # e.g. "application/pdf"
+    mime_type: Optional[str] = None      # serialized as "mimeType"
 
 
-class IntakeStepClassify(BaseModel):
-    doc_type: Optional[str] = None       # formatted, e.g. "Capital Call Notice"
+class IntakeStepClassify(_CamelModel):
+    doc_type: Optional[str] = None       # serialized as "docType"
     confidence: Optional[float] = None   # 0.0–1.0
     pending: bool = False                # true while classification in progress
 
 
-class IntakeStepExtract(BaseModel):
-    total_fields: Optional[int] = None   # count of resolved fields (value != None)
-    max_fields: Optional[int] = None     # total fields in the schema (denominator)
-    flagged_count: Optional[int] = None  # fields with confidence < 0.80
+class IntakeStepExtract(_CamelModel):
+    total_fields: Optional[int] = None   # serialized as "totalFields"
+    max_fields: Optional[int] = None     # serialized as "maxFields"
+    flagged_count: Optional[int] = None  # serialized as "flaggedCount"; fields < 0.80
 
 
-class IntakeStepReady(BaseModel):
-    next_owner: Optional[str] = None     # e.g. "reviewer", "approver", "complete"
+class IntakeStepReady(_CamelModel):
+    next_owner: Optional[str] = None     # serialized as "nextOwner"
 
 
-class IntakeStatusOut(BaseModel):
-    current_step: int                    # 1..4 — which step is active
+class IntakeStatusOut(_CamelModel):
+    current_step: int                    # serialized as "currentStep"
     receive: Optional[IntakeStepReceive] = None
     classify: Optional[IntakeStepClassify] = None
     extract: Optional[IntakeStepExtract] = None
@@ -676,7 +689,11 @@ async def download_pdf(
 # Intake status (POR-159 19d.2) — drives IntakeCeremony real AI narration
 # ---------------------------------------------------------------------------
 
-@router.get("/{pkg_id}/intake-status", response_model=IntakeStatusOut)
+@router.get(
+    "/{pkg_id}/intake-status",
+    response_model=IntakeStatusOut,
+    response_model_by_alias=True,  # emit camelCase (mimeType, docType, etc.) for the FE
+)
 async def get_package_intake_status(
     pkg_id: str,
     current_user: User = Depends(get_current_user),
