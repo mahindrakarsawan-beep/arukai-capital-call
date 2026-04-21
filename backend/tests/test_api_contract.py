@@ -24,7 +24,9 @@ from fastapi.routing import APIRoute
 # Helpers
 # ---------------------------------------------------------------------------
 
-FRONTEND_API_TS = Path("/home/sawan/arukai-capital-call/frontend/src/lib/api.ts")
+# Repo root = backend/tests/this_file.py -> parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FRONTEND_API_TS = REPO_ROOT / "frontend" / "src" / "lib" / "api.ts"
 
 # Primary pattern: backtick literal that starts with API_BASE and has a
 # slash-delimited path segment — stops at backtick, quote, whitespace, or ')'.
