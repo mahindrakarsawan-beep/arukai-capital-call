@@ -145,8 +145,17 @@ fi
 # Step 1: Build Docker images
 # ---------------------------------------------------------------------------
 step "Step 1 of 5 -- Building Docker images"
+# Resolve backend URL BEFORE building frontend so NEXT_PUBLIC_API_URL is baked
+# into the client bundle at build time (Next.js requires NEXT_PUBLIC_* at build).
+BACKEND_URL_FOR_BUILD="$(gcloud run services describe "${BACKEND_SERVICE}" \
+  --region="${REGION}" --project="${PROJECT}" --format="value(status.url)" 2>/dev/null || echo "")"
+if [ -z "${BACKEND_URL_FOR_BUILD}" ]; then
+  # First deploy — use the project-number URL which is stable across revisions.
+  BACKEND_URL_FOR_BUILD="https://${BACKEND_SERVICE}-1035777337524.europe-west4.run.app"
+fi
+
 run docker build --tag "${BACKEND_IMAGE}" "${REPO_ROOT}/backend"
-run docker build --tag "${FRONTEND_IMAGE}" "${REPO_ROOT}/frontend"
+run docker build --build-arg "NEXT_PUBLIC_API_URL=${BACKEND_URL_FOR_BUILD}" --tag "${FRONTEND_IMAGE}" "${REPO_ROOT}/frontend"
 
 # ---------------------------------------------------------------------------
 # Step 2: Push to Artifact Registry
@@ -160,12 +169,16 @@ run docker push "${FRONTEND_IMAGE}"
 # Step 3: Deploy backend to Cloud Run
 # ---------------------------------------------------------------------------
 step "Step 3 of 5 -- Deploying backend: ${BACKEND_SERVICE}"
+# Secret-name convention: CC_* (Capital Call) — matches revision 18 binding.
+# Unprefixed names in this GCP project belong to portfolio-analyzer; using
+# them here would connect this service to the wrong database.
 run gcloud run deploy "${BACKEND_SERVICE}" \
   --image="${BACKEND_IMAGE}" \
   --region="${REGION}" \
   --project="${PROJECT}" \
   --platform=managed \
-  --set-secrets="DATABASE_URL=DATABASE_URL:latest,JWT_SECRET=JWT_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" \
+  --set-env-vars="APP_AUTH_ENABLED=true" \
+  --set-secrets="DATABASE_URL=CC_DATABASE_URL:latest,JWT_SECRET=CC_JWT_SECRET:latest,ANTHROPIC_API_KEY=CC_ANTHROPIC_API_KEY:latest,MISTRAL_API_KEY=CC_MISTRAL_API_KEY:latest,OPENAI_API_KEY=CC_OPENAI_API_KEY:latest" \
   --allow-unauthenticated
 
 # ---------------------------------------------------------------------------

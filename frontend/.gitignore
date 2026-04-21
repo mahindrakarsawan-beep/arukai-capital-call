@@ -1,0 +1,4 @@
+
+# Playwright local artifacts
+frontend/playwright-report/
+frontend/test-results/
