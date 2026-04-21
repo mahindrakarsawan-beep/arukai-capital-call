@@ -15,10 +15,24 @@
  */
 
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 import { AIAnalysisBlock } from "@/components/AIAnalysisBlock";
 import type { Classification } from "@/lib/api";
+
+// POR-160: ExceptionCallout calls flagFieldForReview on click
+jest.mock("@/lib/api", () => {
+  const actual = jest.requireActual("@/lib/api");
+  return {
+    ...actual,
+    flagFieldForReview: jest.fn(),
+  };
+});
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { flagFieldForReview } = require("@/lib/api") as {
+  flagFieldForReview: jest.Mock;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixtures
@@ -475,5 +489,173 @@ describe("AIAnalysisBlock — null/undefined defensive rendering", () => {
     } as unknown as Classification;
     render(<AIAnalysisBlock classification={cls} analysedAt={ANALYSED_AT} />);
     expect(screen.queryByTestId("exception-callouts")).not.toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POR-160 Change 1: attribution prominence in header
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("AIAnalysisBlock — POR-160 header attribution prominence", () => {
+  it("renders the header attribution at text-sm weight, not text-xs/muted", () => {
+    render(
+      <AIAnalysisBlock
+        classification={classificationWithReasoning}
+        analysedAt={ANALYSED_AT}
+      />
+    );
+    const attribution = screen.getByTestId("model-attribution-header");
+    expect(attribution).toBeInTheDocument();
+    expect(attribution.className).toContain("text-sm");
+    expect(attribution.className).toContain("font-medium");
+    expect(attribution.className).toContain("text-fg-obsidian");
+    // Previous quiet styling must be gone
+    expect(attribution.className).not.toContain("text-xs");
+    expect(attribution.className).not.toContain("text-fg-muted");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POR-160 Change 2: "Request human review" action on ExceptionCallout
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("AIAnalysisBlock — POR-160 flag-field action", () => {
+  beforeEach(() => {
+    flagFieldForReview.mockReset();
+  });
+
+  it("hides the button when packageId or token is missing", () => {
+    render(
+      <AIAnalysisBlock
+        classification={classificationWithFields}
+        analysedAt={ANALYSED_AT}
+      />
+    );
+    expect(
+      screen.queryByTestId("flag-field-button-investor_name")
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the button when packageId and token are both present", () => {
+    render(
+      <AIAnalysisBlock
+        classification={classificationWithFields}
+        analysedAt={ANALYSED_AT}
+        packageId="pkg-123"
+        token="tok-abc"
+      />
+    );
+    const btn = screen.getByTestId("flag-field-button-investor_name");
+    expect(btn).toHaveTextContent(/request human review/i);
+    expect(btn).toBeEnabled();
+  });
+
+  it("calls flagFieldForReview with the field name, package id, token, and confidence", async () => {
+    flagFieldForReview.mockResolvedValueOnce({
+      package_id: "pkg-123",
+      field_name: "investor_name",
+      requested_by: "user-1",
+      requested_at: "2026-04-20T12:00:00Z",
+      audit_event_id: "evt-1",
+    });
+
+    const user = userEvent.setup();
+    render(
+      <AIAnalysisBlock
+        classification={classificationWithFields}
+        analysedAt={ANALYSED_AT}
+        packageId="pkg-123"
+        token="tok-abc"
+      />
+    );
+
+    const btn = screen.getByTestId("flag-field-button-investor_name");
+    await user.click(btn);
+
+    expect(flagFieldForReview).toHaveBeenCalledTimes(1);
+    expect(flagFieldForReview).toHaveBeenCalledWith(
+      "pkg-123",
+      "investor_name",
+      "tok-abc",
+      expect.objectContaining({ fieldConfidence: 0.43 })
+    );
+
+    // After success, label flips to "Review requested" and button is disabled
+    await waitFor(() =>
+      expect(btn).toHaveTextContent(/review requested/i)
+    );
+    expect(btn).toBeDisabled();
+  });
+
+  it("does not re-submit when clicked twice in succession", async () => {
+    let resolveFn: (value: unknown) => void = () => {};
+    flagFieldForReview.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveFn = resolve;
+      })
+    );
+
+    const user = userEvent.setup();
+    render(
+      <AIAnalysisBlock
+        classification={classificationWithFields}
+        analysedAt={ANALYSED_AT}
+        packageId="pkg-123"
+        token="tok-abc"
+      />
+    );
+
+    const btn = screen.getByTestId("flag-field-button-investor_name");
+    await user.click(btn);
+    // While pending, the button is disabled — a second click must not fire another call
+    await user.click(btn);
+    expect(flagFieldForReview).toHaveBeenCalledTimes(1);
+
+    resolveFn({
+      package_id: "pkg-123",
+      field_name: "investor_name",
+      requested_by: "user-1",
+      requested_at: "2026-04-20T12:00:00Z",
+      audit_event_id: "evt-1",
+    });
+  });
+
+  it("surfaces an error message and allows a retry on failure", async () => {
+    flagFieldForReview.mockRejectedValueOnce(new Error("Network error"));
+
+    const user = userEvent.setup();
+    render(
+      <AIAnalysisBlock
+        classification={classificationWithFields}
+        analysedAt={ANALYSED_AT}
+        packageId="pkg-123"
+        token="tok-abc"
+      />
+    );
+
+    const btn = screen.getByTestId("flag-field-button-investor_name");
+    await user.click(btn);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("flag-field-error-investor_name")
+      ).toHaveTextContent(/network error/i)
+    );
+    expect(btn).toHaveTextContent(/retry request/i);
+    expect(btn).toBeEnabled();
+
+    // Retry succeeds
+    flagFieldForReview.mockResolvedValueOnce({
+      package_id: "pkg-123",
+      field_name: "investor_name",
+      requested_by: "user-1",
+      requested_at: "2026-04-20T12:00:01Z",
+      audit_event_id: "evt-2",
+    });
+    await user.click(btn);
+    await waitFor(() =>
+      expect(btn).toHaveTextContent(/review requested/i)
+    );
+    expect(flagFieldForReview).toHaveBeenCalledTimes(2);
   });
 });

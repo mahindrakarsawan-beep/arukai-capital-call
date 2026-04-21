@@ -308,6 +308,8 @@ export default async function DocumentDetailPage({ params }: Props) {
                 reasoning={doc.classification_reasoning ?? undefined}
                 modelUsed={doc.model_used ?? undefined}
                 durationMs={doc.classification_duration_ms ?? undefined}
+                packageId={doc.id}
+                token={token}
               />
             </div>
           )}
