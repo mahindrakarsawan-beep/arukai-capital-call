@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.auth import get_current_user, require_role
 from app.classify import classify_document_text, extract_pdf_text
 from app.db import get_db
+from app.sanitizers import clean_filename
 from app.models import (
     Approval,
     AuditEvent,
@@ -413,7 +414,12 @@ async def upload_package(
     if len(raw) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    is_valid, reason = validate_pdf(raw, file.filename or "unknown.pdf")
+    # POR-158 #8: scrub the user-supplied filename once, up-front, and use the
+    # safe value at every downstream boundary (DB, audit after_state, LLM
+    # prompt in classify_document_text, Content-Disposition on download).
+    safe_filename = clean_filename(file.filename)
+
+    is_valid, reason = validate_pdf(raw, safe_filename)
     if not is_valid:
         raise HTTPException(status_code=400, detail=reason)
 
@@ -434,7 +440,7 @@ async def upload_package(
     # Create document
     doc = Document(
         package_id=pkg.id,
-        filename=file.filename or "upload.pdf",
+        filename=safe_filename,
         mime_type=file.content_type or "application/pdf",
         size_bytes=len(raw),
         content=raw,
@@ -701,7 +707,7 @@ async def download_pdf(
     return Response(
         content=doc.content,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{doc.filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{clean_filename(doc.filename)}"'},
     )
 
 
