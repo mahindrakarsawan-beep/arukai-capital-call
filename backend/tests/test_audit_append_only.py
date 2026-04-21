@@ -23,18 +23,20 @@ async def test_audit_event_update_raises(async_session):
     The guard is enabled for the duration of this test.
     In PostgreSQL, the trigger enforces this at DB level.
     """
-    from app.models import AuditEvent
+    from app.audit_chain import create_audit_event
     from app.audit_guard import AuditMutationError, enable_audit_guard, disable_audit_guard
 
-    # Insert a real audit event
-    event = AuditEvent(
+    # Insert via the chain-aware factory so the hash chain stays consistent
+    # for verify_chain — POR-158 #7. The append-only guard is independent
+    # of chaining; it fires on UPDATE/DELETE attempts regardless.
+    event = await create_audit_event(
+        async_session,
         package_id=None,
         actor_user_id=None,
         action="test_guard_update",
         before_state=None,
         after_state={"test": True},
     )
-    async_session.add(event)
     await async_session.commit()
     await async_session.refresh(event)
 
@@ -51,17 +53,17 @@ async def test_audit_event_update_raises(async_session):
 @pytest.mark.asyncio
 async def test_audit_event_delete_raises(async_session):
     """Attempting to DELETE an audit_events row must raise AuditMutationError (R9)."""
-    from app.models import AuditEvent
+    from app.audit_chain import create_audit_event
     from app.audit_guard import AuditMutationError, enable_audit_guard, disable_audit_guard
 
-    event = AuditEvent(
+    event = await create_audit_event(
+        async_session,
         package_id=None,
         actor_user_id=None,
         action="test_guard_delete",
         before_state=None,
         after_state={"test": True},
     )
-    async_session.add(event)
     await async_session.commit()
     await async_session.refresh(event)
 

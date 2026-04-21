@@ -308,6 +308,15 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now, index=True
     )
+    # POR-158 #7 — SHA-256 hash chain for tamper-evidence.
+    # event_hash is sha256 hex of this row's canonical payload. prev_hash
+    # points at the immediately-previous event (NULL for the genesis row).
+    # All writes MUST go through app.audit_chain.create_audit_event() so these
+    # stay populated and consistent. Verification via GET /audit/verify (admin).
+    prev_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    event_hash: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
 
     package: Mapped[Optional["Package"]] = relationship("Package", back_populates="audit_events")
     actor: Mapped[Optional["User"]] = relationship("User", back_populates="audit_events")

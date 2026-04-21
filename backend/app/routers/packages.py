@@ -370,14 +370,20 @@ async def _write_audit(
     before_state: Optional[dict] = None,
     after_state: Optional[dict] = None,
 ) -> None:
-    event = AuditEvent(
+    """Thin delegator — all chaining lives in app.audit_chain.
+    Kept so call sites in this router stay readable; downstream they go
+    through the single hash-chained creation path (POR-158 #7).
+    """
+    from app.audit_chain import create_audit_event
+
+    await create_audit_event(
+        db,
         package_id=package_id,
         actor_user_id=actor_user_id,
         action=action,
         before_state=before_state,
         after_state=after_state,
     )
-    db.add(event)
 
 
 async def _get_package_or_404(db: AsyncSession, pkg_id: str) -> Package:

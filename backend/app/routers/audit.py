@@ -61,6 +61,36 @@ def _build_filters(
 
 
 # ---------------------------------------------------------------------------
+# POR-158 #7 — Hash-chain verification (admin only)
+# ---------------------------------------------------------------------------
+
+
+class AuditVerifyResponse(BaseModel):
+    ok: bool
+    total_events: int
+    first_tampered_id: Optional[str] = None
+
+
+@router.get("/audit/verify", response_model=AuditVerifyResponse)
+async def verify_audit_chain(
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Walk the audit_events hash chain and report the first tampered row.
+
+    Any DBA-level mutation (UPDATE bypassing the append-only trigger, or a
+    rewrite of payload fields) will produce a recomputed event_hash that
+    diverges from the stored value, or a prev_hash that no longer matches
+    the walking cursor. Either condition returns ok=false with the id of
+    the first divergent row.
+    """
+    from app.audit_chain import verify_chain
+
+    result = await verify_chain(db)
+    return AuditVerifyResponse(**result)
+
+
+# ---------------------------------------------------------------------------
 # Global audit ledger (admin + approver only — S5)
 # ---------------------------------------------------------------------------
 
