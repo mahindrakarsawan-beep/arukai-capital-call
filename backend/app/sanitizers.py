@@ -16,13 +16,27 @@ Does NOT HTML-escape: rendering-layer concern. Storage stays truthful.
 """
 from __future__ import annotations
 
+import ntpath
 import os
 import re
 
 # Characters that have no legitimate place in an uploaded filename. We drop
 # rather than escape because we do not want to reconstruct the original
 # intent — a hostile input is thrown away, a benign one is unaffected.
-_FORBIDDEN = re.compile(r"[\x00-\x1f<>:\"|?*$`;()&{}\[\]\\]")
+#
+# Grouped by category for future-maintainer auditability. `/` is included
+# explicitly (belt-and-braces) so "no path separator survives" is true by
+# construction rather than by dependency on basename's platform behavior.
+# `&` is intentionally NOT listed — legitimate filenames contain it (e.g.
+# "R&D report.pdf", "Smith & Co capital call.pdf") and it cannot initiate
+# command execution in isolation once ;, |, $(), backticks are removed.
+_FORBIDDEN = re.compile(
+    r"[\x00-\x1f"         # control chars, CR/LF
+    r"<>\"'`"             # HTML/quote metacharacters
+    r"|?*:"               # Windows-reserved + wildcards
+    r"$();{}\[\]\\/"      # shell metacharacters + path separators
+    r"]"
+)
 
 _MAX_LEN = 255
 _DEFAULT_EXT = ".pdf"
@@ -42,7 +56,6 @@ def clean_filename(raw: str | None) -> str:
         return "upload" + _DEFAULT_EXT
 
     # Strip path components — basename handles POSIX, ntpath handles backslash
-    import ntpath
     name = ntpath.basename(os.path.basename(raw))
 
     # Remove forbidden bytes
@@ -61,6 +74,8 @@ def clean_filename(raw: str | None) -> str:
         return "upload" + _DEFAULT_EXT
 
     # Ensure an extension survives
+    # Multi-part extensions (.tar.gz) collapse to the final segment — fine
+    # for this product's allowed types (PDF/EML/PNG/etc.).
     root, ext = os.path.splitext(name)
     if not ext or not re.fullmatch(r"\.[A-Za-z0-9]{1,8}", ext):
         name = (root or "upload") + _DEFAULT_EXT

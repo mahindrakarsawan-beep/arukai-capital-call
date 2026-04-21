@@ -43,3 +43,40 @@ def test_clean_filename_length_cap():
     out = clean_filename(long)
     assert len(out) <= 255
     assert out.endswith(".pdf")
+
+
+def test_clean_filename_length_cap_preserves_full_extension():
+    """255-char cap must leave the full ext intact (root truncates, not ext)."""
+    out = clean_filename("a" * 500 + ".pdf")
+    assert out == "a" * 251 + ".pdf"
+    assert len(out) == 255
+
+
+def test_clean_filename_overlong_extension_falls_back():
+    """An extension longer than 8 chars is rejected → .pdf fallback."""
+    assert clean_filename("doc.verylongextension").endswith(".pdf")
+
+
+def test_clean_filename_path_separators_always_stripped():
+    """Belt-and-braces: no platform-dependent basename behavior for separators."""
+    assert clean_filename("a/b/c.pdf") == "c.pdf"
+    assert clean_filename("a\\b\\c.pdf") == "c.pdf"
+    out = clean_filename("foo/../bar.pdf")
+    assert out.endswith(".pdf")
+    assert "/" not in out and ".." not in out
+
+
+def test_clean_filename_preserves_ampersand():
+    """`&` is NOT in the forbidden set — legit filenames keep it."""
+    assert clean_filename("R&D report.pdf") == "R&D_report.pdf"
+    assert clean_filename("Smith & Co.pdf") == "Smith_&_Co.pdf"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("foo.PDF", "foo.PDF"),
+    ("foo.EML", "foo.EML"),
+    ("foo.PnG", "foo.PnG"),
+])
+def test_clean_filename_preserves_extension_case(raw, expected):
+    """Extension case is preserved (regex is [A-Za-z0-9], not [a-z0-9])."""
+    assert clean_filename(raw) == expected
