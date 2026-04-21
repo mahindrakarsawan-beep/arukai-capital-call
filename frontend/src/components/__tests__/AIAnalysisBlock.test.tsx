@@ -381,11 +381,15 @@ describe("AIAnalysisBlock — model attribution footer", () => {
     expect(footer).toHaveTextContent(/claude-haiku-3/i);
   });
 
-  it("footer falls back to 'Claude Haiku' when model_version is absent", () => {
+  it("footer falls back to 'Mistral Small' when model_version is absent (POR-159 19d.3)", () => {
+    // Claude Haiku was removed from production in Sprint 3 (commit 99c32d8).
+    // Mistral Small is the current primary; the fallback must not misrepresent
+    // which model ran when model_version is null — that would mislead clients
+    // about data residency on the package detail page.
     const cls: Classification = { ...baseClassification, model_version: undefined };
     render(<AIAnalysisBlock classification={cls} analysedAt={ANALYSED_AT} />);
     const footer = screen.getByTestId("model-attribution");
-    expect(footer).toHaveTextContent(/claude haiku/i);
+    expect(footer).toHaveTextContent(/mistral small/i);
   });
 
   it("footer contains the formatted analysis date", () => {

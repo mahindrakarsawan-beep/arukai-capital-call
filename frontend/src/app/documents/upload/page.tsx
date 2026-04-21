@@ -170,8 +170,9 @@ export default function UploadPage() {
         ? Object.entries(classification.extracted_fields as Record<string, unknown>)
         : [];
       const flaggedFields = extractedFields.filter(
+        // POR-159 19d.3: threshold 0.80 matches backend _build_ai_summary + AIAnalysisBlock
         ([, f]) => typeof (f as { confidence?: number }).confidence === "number" &&
-          ((f as { confidence: number }).confidence) < 0.5
+          ((f as { confidence: number }).confidence) < 0.80
       );
 
       const stepData: IntakeStepData = {

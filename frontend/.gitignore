@@ -1,4 +1,4 @@
 
-# Playwright local artifacts
-frontend/playwright-report/
-frontend/test-results/
+# Playwright local artifacts (paths relative to this .gitignore's frontend/ location)
+playwright-report/
+test-results/
