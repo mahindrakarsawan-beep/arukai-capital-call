@@ -38,6 +38,11 @@ function toRowPkg(pkg: PackageListOut): PackageRowPkg {
     lastMovement: pkg.uploaded_at,
     // claimStatus: Phase B — Drummer will add claimed_by_user_id; default null here
     claimStatus: null,
+    // POR-159 19d.4: wire server-side AI summary so PackageRow doesn't fall
+    // back to buildClientSummary (which emits "Capital Call Notice · 99%
+    // confidence" and misses the `N flagged` tail). NeedsReviewSection's
+    // toRowPkg already does this; this mapper was missed.
+    aiSummary: pkg.ai_summary,
   };
 }
 
