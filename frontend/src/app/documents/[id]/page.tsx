@@ -168,10 +168,12 @@ export default async function DocumentDetailPage({ params }: Props) {
             </div>
           </div>
           <p className="mt-1 font-interface text-sm text-fg-muted">
-            Package submitted {doc.uploaded_at ? formatDateTime(doc.uploaded_at) : "—"}
-            {/* POR-161 #1: prefer the email-derived display name over the raw
-                UUID. Falls back to email, then UUID, then nothing — the UUID
-                path should rarely trigger in practice (users always have email). */}
+            {/* POR-161 #1 + follow-up: compose the subtitle defensively.
+                Figma: "Package submitted 2026-04-15 by Naomi Ito". If date is
+                missing, drop it cleanly — don't leave a dangling em-dash.
+                If name is missing, just say "Package submitted <date>". */}
+            Package submitted
+            {doc.uploaded_at ? ` ${formatDateTime(doc.uploaded_at)}` : ""}
             {doc.uploaded_by_email || doc.uploaded_by
               ? ` by ${formatUploaderName(doc.uploaded_by_email, doc.uploaded_by)}`
               : ""}
