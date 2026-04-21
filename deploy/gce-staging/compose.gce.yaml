@@ -1,0 +1,139 @@
+# Sprint 19b — Windmill + Authentik stack on a single GCE VM.
+#
+# Adapted from the top-level compose.yaml by:
+#   - dropping backend/frontend/db (those run on Cloud Run, not this VM)
+#   - binding Windmill to host port 8100 (matches backend WINDMILL_BASE_URL default)
+#   - binding Authentik to host port 9000
+#   - exposing health endpoints so the VM bootstrap script can wait for readiness
+#
+# Env vars (set via /opt/arukai/staging.env — see bootstrap.sh):
+#   AUTHENTIK_SECRET_KEY       — 50-char random, required
+#   AUTHENTIK_BOOTSTRAP_PASSWORD — admin password for Authentik initial-setup flow
+#   AUTHENTIK_POSTGRESQL_PASSWORD
+#   WINDMILL_POSTGRESQL_PASSWORD
+
+services:
+  # ── Windmill stack ──────────────────────────────────────────────────────────
+  windmill-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: windmill
+      POSTGRES_USER: windmill
+      POSTGRES_PASSWORD: ${WINDMILL_POSTGRESQL_PASSWORD:-windmill}
+    volumes:
+      - windmill_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U windmill -d windmill"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  windmill-server:
+    image: ghcr.io/windmill-labs/windmill:1.390.0
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://windmill:${WINDMILL_POSTGRESQL_PASSWORD:-windmill}@windmill-db:5432/windmill
+      MODE: server
+      BASE_INTERNAL_URL: http://windmill-server:8000
+    ports:
+      - "8100:8000"
+    depends_on:
+      windmill-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/api/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  windmill-worker:
+    image: ghcr.io/windmill-labs/windmill:1.390.0
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://windmill:${WINDMILL_POSTGRESQL_PASSWORD:-windmill}@windmill-db:5432/windmill
+      MODE: worker
+      WORKER_GROUP: default
+    depends_on:
+      windmill-server:
+        condition: service_healthy
+
+  # ── Authentik stack ─────────────────────────────────────────────────────────
+  authentik-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRESQL_PASSWORD:-authentik}
+    volumes:
+      - authentik_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik -d authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  authentik-redis:
+    image: redis:alpine
+    restart: unless-stopped
+    volumes:
+      - authentik_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2024.12
+    restart: unless-stopped
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY required — generate with openssl rand -hex 32}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRESQL_PASSWORD:-authentik}
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:-change-me}
+      AUTHENTIK_BOOTSTRAP_EMAIL: ${AUTHENTIK_BOOTSTRAP_EMAIL:-admin@arukai.example}
+    ports:
+      - "9000:9000"
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9000/-/health/live/"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2024.12
+    restart: unless-stopped
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY required}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRESQL_PASSWORD:-authentik}
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+
+volumes:
+  windmill_db_data:
+  authentik_db_data:
+  authentik_redis_data:
