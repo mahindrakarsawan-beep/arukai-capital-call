@@ -25,10 +25,12 @@ const basePkg: PackageRowPkg = {
 };
 
 describe("PackageRow — rendering", () => {
-  it("renders the formatted doc type as title when docType is provided", () => {
+  it("renders pkg.title as the row title (POR-161 #4 + #5, Figma 57:2)", () => {
     render(<PackageRow pkg={basePkg} />);
-    // basePkg has docType="capital_call_notice" → formatDocType → "Capital Call Notice"
-    expect(screen.getByText("Capital Call Notice")).toBeInTheDocument();
+    // POR-161: title = pkg.title (fund name or package reference), not formatted
+    // docType. Doc type is communicated through the AI summary prose only per
+    // Figma 57:2. See holden-por159-design-vs-code-review.md §Frame 57:2.
+    expect(screen.getByText("Fund_III_Q2_capital_call.pdf")).toBeInTheDocument();
   });
 
   it("renders a link to the package detail page", () => {
@@ -37,9 +39,17 @@ describe("PackageRow — rendering", () => {
     expect(link).toHaveAttribute("href", "/documents/pkg-1");
   });
 
-  it("renders ClassificationBadge when docType is provided", () => {
-    render(<PackageRow pkg={basePkg} />);
-    expect(screen.getByText("Capital Call")).toBeInTheDocument();
+  it("does NOT render a ClassificationBadge chip next to the title (POR-161 #4)", () => {
+    // Figma 57:2: redundant chip removed — doc type signal comes from the AI
+    // summary prose, not a pill next to the title.
+    const { container } = render(<PackageRow pkg={basePkg} />);
+    // ClassificationBadge renders inside an element with class "classification-badge"
+    // (or use data-testid if present). Fall back: the title-adjacent span with
+    // role=... wasn't rendered at all. Assert no element with the exact short
+    // name "Capital Call" as standalone content — only inside the AI summary
+    // (which this test doesn't exercise).
+    const badges = container.querySelectorAll('[data-testid="classification-badge"]');
+    expect(badges.length).toBe(0);
   });
 
   it("does NOT render a claim CTA when claimStatus is null", () => {
@@ -315,34 +325,51 @@ describe("formatDocType helper", () => {
   });
 });
 
-describe("PackageRow — doc_type formatted title (#4)", () => {
-  it("shows formatted doc_type as title when docType is present", () => {
+describe("PackageRow — title rendering (POR-161 #4 + #5, Figma 57:2)", () => {
+  it("shows pkg.title as the row title when present", () => {
     const pkg: PackageRowPkg = {
       ...basePkg,
+      title: "Meridian Capital Partners III — Q2 capital call",
+    };
+    render(<PackageRow pkg={pkg} />);
+    expect(
+      screen.getByText("Meridian Capital Partners III — Q2 capital call")
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to formatted docType when pkg.title is missing", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      title: "",
       docType: "capital_call_notice",
     };
     render(<PackageRow pkg={pkg} />);
+    // Fallback: formatDocType("capital_call_notice") → "Capital Call Notice"
     expect(screen.getByText("Capital Call Notice")).toBeInTheDocument();
   });
 
-  it("falls back to pkg.title when docType is null", () => {
+  it("shows subtitle (raw filename) in muted text when distinct from title", () => {
     const pkg: PackageRowPkg = {
       ...basePkg,
-      docType: null,
-      title: "Fund III Q2 Capital Call",
-    };
-    render(<PackageRow pkg={pkg} />);
-    expect(screen.getByText("Fund III Q2 Capital Call")).toBeInTheDocument();
-  });
-
-  it("shows subtitle (raw filename) in muted text when subtitle is provided", () => {
-    const pkg: PackageRowPkg = {
-      ...basePkg,
-      docType: "capital_call_notice",
+      title: "Meridian Capital Partners III — Q2 capital call",
       subtitle: "Fund_III_Q2_capital_call.pdf",
     };
     render(<PackageRow pkg={pkg} />);
     expect(screen.getByText("Fund_III_Q2_capital_call.pdf")).toBeInTheDocument();
+  });
+
+  it("does NOT render subtitle when it duplicates the title (POR-161 polish)", () => {
+    const pkg: PackageRowPkg = {
+      ...basePkg,
+      title: "Fund_III_Q2_capital_call.pdf",
+      subtitle: "Fund_III_Q2_capital_call.pdf",
+    };
+    const { container } = render(<PackageRow pkg={pkg} />);
+    const matches = container.querySelectorAll('*');
+    const textCount = Array.from(matches).filter(
+      (el) => el.textContent === "Fund_III_Q2_capital_call.pdf" && el.children.length === 0
+    ).length;
+    expect(textCount).toBe(1); // rendered once as title, not twice
   });
 
   it("shows 'Received Xh ago' timestamp when lastMovement is provided", () => {
@@ -354,14 +381,20 @@ describe("PackageRow — doc_type formatted title (#4)", () => {
     expect(screen.getByText(/received 3h ago/i)).toBeInTheDocument();
   });
 
-  it("shows inline ConfidenceBadge when confidence > 0", () => {
+  // POR-161 #4: the inline ConfidenceBadge on the row identity column was
+  // removed alongside the ClassificationBadge — confidence is communicated
+  // via the AI summary prose (`…99% confidence · 0 flags`). If we ever add
+  // a visible-confidence signal back to the row, replace this test with the
+  // positive assertion at that time.
+  it("does NOT show a standalone ConfidenceBadge on the row (POR-161 #4)", () => {
     const pkg: PackageRowPkg = {
       ...basePkg,
       confidence: 0.92,
+      aiSummary: null, // suppress the summary so we don't pick up the % from prose
     };
-    render(<PackageRow pkg={pkg} />);
-    // ConfidenceBadge renders the percentage value
-    expect(screen.getByText("92%")).toBeInTheDocument();
+    const { container } = render(<PackageRow pkg={pkg} />);
+    // No standalone "92%" as the sole text content of a chip element.
+    expect(container.querySelector('[data-testid="confidence-badge"]')).toBeNull();
   });
 
   it("does NOT show ConfidenceBadge when confidence is null", () => {

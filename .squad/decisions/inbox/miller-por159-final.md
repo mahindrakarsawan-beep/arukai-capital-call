@@ -159,3 +159,154 @@ Branch `savnya/por-159-sprint-19d-visible-ai` is local only (not yet pushed — 
 Phase 2 (19d.4 part 2) — re-run identical command, expect `3 passed`. I'll file the green verdict as `miller-por159-green.md` at that point.
 
 — Miller
+
+---
+
+# Green-phase result — 2026-04-20
+
+**Branch HEAD:** `137f54f` (19d.1 + 19d.2 + 19d.3 applied + staging deployed).
+**Regression:** Backend `SKIP_WINDMILL_TESTS=1 pytest tests/ -q` → **198 passed, 7 skipped** — identical to baseline. Zero regression.
+**Verdict:** BOUNCE — not GREEN. 1 real integration defect + 2 spec defects (mine).
+
+## 9. E2E run
+
+Command:
+```
+FRONTEND_URL=https://arukai-capital-call-frontend-staging-1035777337524.europe-west4.run.app \
+  npm run e2e:staging -- e2e/visible-ai.spec.ts --reporter=list
+```
+
+Result: **3 failed**, 0 passed.
+
+## 10. Per-spec outcomes
+
+### Spec A — Package detail: AI Analysis block shows real data → FAIL
+
+**Root cause: spec defect I introduced in the RED phase.**
+
+`openFirstPackageDetail` (line 49–58) does `page.locator('a[href^="/documents/"]').first()`. The TopNav component (`src/components/TopNav.tsx:44–56`) renders two `/documents/*` links *before* the PackageRow links:
+
+1. `<Link href="/documents">` — wordmark + Console link
+2. `<Link href="/documents/upload">` — "Begin intake"
+
+`.first()` matches one of those and clicks through. The URL regex `/\/documents\/[a-zA-Z0-9_-]+$/` accepts `/documents/upload`, so the assertion passes, and the test body runs against the upload page where `[data-testid="ai-analysis-block"]` of course does not exist.
+
+Playwright page-snapshot in `test-results/visible-ai-A-Package-detai-7729b-…/error-context.md` confirms: browser is on the "Begin governed intake" form, not a package detail.
+
+**This is not a product defect.** The 19d.3 gating fix is correct in source (verified by reading `src/app/documents/[id]/page.tsx:256–284` — the gate now opens on either `classification` OR `doc.classification_reasoning` OR `doc.extracted_fields`). Once the locator actually navigates to a real detail page, A.2–A.6 will exercise the product fixes.
+
+**Fix path (test-code only):**
+```ts
+// frontend/e2e/visible-ai.spec.ts:50 — was:
+const firstRow = page.locator('a[href^="/documents/"]').first();
+// fix — match only package-row links (they wrap an ai-summary-line testid):
+const firstRow = page.locator('a[href^="/documents/"]')
+  .filter({ has: page.locator('[data-testid="ai-summary-line"]') })
+  .first();
+```
+Also tighten the URL regex to require a UUID-shaped slug: `/\/documents\/[0-9a-f]{8}-[0-9a-f]{4}-/`.
+
+Miller can't Write source (charter §"Write tool scope"). Bobbie owns the spec patch.
+
+### Spec B — Operations console: each row shows a well-formed AI summary → FAIL
+
+**Root cause: spec defect. My regex is over-strict on non-capital-call rows.**
+
+Live `GET /packages` (direct curl, admin token) confirms 19d.1 works correctly:
+
+| doc_type | ai_summary |
+|---|---|
+| `capital_call_notice` | `"Capital Call · $120M due May 15 · 7 fields extracted · 99% confidence · 1 flagged"` ← matches target regex |
+| `capital_call_notice` | `"Capital Call · $2M due May 15 · 8 fields extracted · 99% confidence · 0 flags"` ← matches |
+| `other` (china_holiday_schedule) | `"Document · 99% confidence · 0 flags"` ← correct for non-extractable doc, does NOT match `$X due … fields extracted` regex |
+
+The console renders sections in order `Exceptions → Pending → Needs review → Active → Recent` (per `src/app/documents/page.tsx:179–214`). The first rendered row in the current staging seed is an `intake_complete` / `other`-type package in Needs-review → summary `"Document · 99% confidence · 0 flags"` → regex rejects it.
+
+My exemption clause only skips literal `"Awaiting classification"`. It should also skip the `"Document · …"` non-capital-call summary, which is a valid, well-formed output.
+
+**Fix path (test-code only):** extend exemption at line 156:
+```ts
+if (text === 'Awaiting classification') continue;
+if (/^Document ·/.test(text)) continue;  // non-capital-call is correctly minimal
+```
+Again, Bobbie.
+
+### Spec C — Intake ceremony: /packages/{id}/intake-status → FAIL (REAL INTEGRATION DEFECT)
+
+**This one is a genuine product defect.**
+
+19d.2 ships the endpoint — direct curl returns HTTP 200 with a body. But the **JSON case is snake_case**, and the **FE contract is camelCase**. Response body (live staging, package `e70b0da6-bb82-4d92-b503-2155fb6fd41b`):
+
+```json
+{
+  "current_step": 4,
+  "receive":  { "filesize": "1 KB", "mime_type": "application/pdf" },
+  "classify": { "doc_type": "Capital Call", "confidence": 0.99, "pending": false },
+  "extract":  { "total_fields": 7, "max_fields": 8, "flagged_count": 1 },
+  "ready":    { "next_owner": "complete" }
+}
+```
+
+Frontend contract (`src/components/IntakeCeremony.tsx:31` `IntakeStepData`) requires:
+- `receive.mimeType` (not `mime_type`)
+- `classify.docType` (not `doc_type`)
+- `extract.totalFields` / `maxFields` / `flaggedCount` (not `total_fields` / `max_fields` / `flagged_count`)
+- `ready.nextOwner` (not `next_owner`)
+
+Spec C's `typeof body.classify?.docType === 'string'` returns `"undefined"` — exactly what the failure message shows.
+
+**User-visible impact (this is why the charter requires a browser-level smoke):** Bobbie's 19d.3 upload-page poller will hit `/intake-status`, get the 200, and read `undefined` for every label field. The `buildReceiveLabel` / `buildClassifyLabel` / `buildExtractLabel` / `buildReadyLabel` pure functions in `IntakeCeremony.tsx:68–101` all test the camelCase keys and fall through to placeholders (`"Package received"`, `"Classifying materials"`, `"Extracting key fields"`, `"Intake complete"`). Net result: the ceremony renders with the same cosmetic labels POR-159 was supposed to eliminate. **Silent failure — no error, no console log, just fake-AI ceremony still showing.**
+
+**Fix path — Naomi.** Add Pydantic serialization aliases to the four `IntakeStep*` models in `backend/app/routers/packages.py:170–192`:
+
+```python
+from pydantic import BaseModel, ConfigDict, Field
+
+def _camel(s: str) -> str:
+    head, *tail = s.split("_")
+    return head + "".join(w.capitalize() for w in tail)
+
+class IntakeStepBase(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=_camel,
+    )
+
+class IntakeStepReceive(IntakeStepBase):
+    filesize: Optional[str] = None
+    mime_type: Optional[str] = None  # serialized as "mimeType"
+# …same for Classify / Extract / Ready
+```
+
+This preserves internal Python snake_case and ships camelCase over the wire — the one-line solution.
+
+The root-level `current_step` also needs the alias so the FE gets `currentStep` (confirm this is what `IntakeCeremony.tsx` expects). Quick grep shows the FE consumer pattern reads `stepData.receive`, `stepData.classify`, etc. — not `current_step` directly — so this one is lower priority but still a case-correctness issue.
+
+## 11. Regression delta
+
+- Backend pytest: **198 passed, 7 skipped** — identical to pre-19d baseline. Zero regression.
+- FE jest (reported by Holden in handoff, not re-run here): 20 suites / 342 tests pass — baseline preserved.
+
+## 12. Anomalies worth a ticket
+
+1. **FE/BE contract check missing in CI.** The snake_case/camelCase mismatch on `/intake-status` is the exact defect class my charter's §"Mandatory smoke standard" Rule 15 (`scripts/contract_check.py`) is supposed to catch — but that script doesn't exist in this repo. Suggested **POR-160**: add a CI job that diffs FastAPI `openapi.json` response schemas against the TS interfaces used to consume them. Would catch this defect at commit time, not after staging deploy.
+
+2. **`ready.next_owner: "complete"` copy bug.** For `decision_recorded` terminal packages, the endpoint returns `next_owner: "complete"`. `IntakeCeremony.tsx:99` `buildReadyLabel` renders `"Package ready for review · awaiting complete"` — awkward. Either return `null` for terminal states (and let `buildReadyLabel` use its default), or special-case `"complete"` in the label template. Low priority; file follow-up ticket.
+
+3. **Spec defects in `visible-ai.spec.ts`** (A and B) — Bobbie to patch per §10 above. These do not block the 19d.2 case-alias fix.
+
+## 13. Bounce-back summary
+
+Not GREEN. Three actions before re-run:
+
+| Item | Owner | Change |
+|---|---|---|
+| Spec A locator | Bobbie | `frontend/e2e/visible-ai.spec.ts:50` — scope locator to links that wrap `ai-summary-line`; tighten URL regex to UUID |
+| Spec B exemption | Bobbie | `frontend/e2e/visible-ai.spec.ts:156` — add `if (/^Document ·/.test(text)) continue;` |
+| Intake-status JSON case | Naomi | `backend/app/routers/packages.py:170–197` — add `ConfigDict(alias_generator=to_camel, populate_by_name=True)` to a shared `IntakeStepBase` |
+
+After all three land on `savnya/por-159-sprint-19d-visible-ai` and staging redeploys, re-run `npm run e2e:staging -- e2e/visible-ai.spec.ts`. Expect 3 passed. Pytest holds at 198 passed.
+
+Not opening PR. Holden dispatches 19d.4a (Bobbie spec fix) and 19d.4b (Naomi alias fix), then re-runs me.
+
+— Miller, 2026-04-20

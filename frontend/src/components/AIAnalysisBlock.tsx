@@ -48,6 +48,61 @@ function formatDate(iso: string): string {
 }
 
 /**
+ * POR-161 #2: format an extracted-field value for display in the extraction
+ * table. Picks a formatter based on field key: currency keys get $12,500,000
+ * with thousands separators; date keys get "May 15, 2026". Unknown keys pass
+ * through as string. Preserves raw value in the API response for downstream
+ * consumers — this is a presentation-layer concern.
+ */
+const CURRENCY_FIELD_KEYS = new Set([
+  "amount_due",
+  "call_amount",
+  "commitment",
+  "total_commitment",
+  "remaining_commitment",
+]);
+
+const DATE_FIELD_KEYS = new Set([
+  "due_date",
+  "notice_date",
+  "effective_date",
+  "as_of_date",
+]);
+
+function formatFieldValue(key: string, raw: string | number | boolean | null | undefined): string {
+  if (raw === null || raw === undefined) return "—";
+  if (typeof raw === "boolean") return raw ? "Yes" : "No";
+
+  if (CURRENCY_FIELD_KEYS.has(key)) {
+    // Accept either numeric or numeric-looking string inputs; strip symbols/commas
+    const str = String(raw).replace(/[$,€£\s]/g, "").trim();
+    const n = Number(str);
+    if (Number.isFinite(n)) {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      }).format(n);
+    }
+    return String(raw);
+  }
+
+  if (DATE_FIELD_KEYS.has(key)) {
+    const d = new Date(String(raw));
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    }
+    return String(raw);
+  }
+
+  return String(raw);
+}
+
+/**
  * Build a fallback reasoning paragraph from key_indicators when the backend
  * hasn't yet shipped classification_reasoning (POR-151).
  */
@@ -250,14 +305,9 @@ export function AIAnalysisBlock({
             data-testid="extraction-table"
           >
             {fieldEntries.map(([key, field]) => {
-              const displayValue =
-                field.value === null || field.value === undefined
-                  ? "—"
-                  : typeof field.value === "boolean"
-                  ? field.value
-                    ? "Yes"
-                    : "No"
-                  : String(field.value);
+              // POR-161 #2: currency + date formatters based on field key.
+              // Raw API value preserved server-side; presentation applied here.
+              const displayValue = formatFieldValue(key, field.value);
 
               return (
                 <div

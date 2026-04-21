@@ -111,26 +111,22 @@ export function PackageRow({ pkg, onClaimToggle }: PackageRowProps) {
         className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3 hover:bg-bg-parchment transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fg-slate"
         aria-label={`Open package ${pkg.title}`}
       >
-        {/* Identity column: doc type title + classification badge + subtitle — stacks on mobile */}
+        {/* Identity column: fund-name title + AI summary below — stacks on mobile */}
         <span className="flex flex-col gap-0.5 flex-1 min-w-0">
-          {/* Title line: formatted doc type (or raw title) + classification badge + confidence inline */}
+          {/* POR-161 #4 + #5: title = pkg.title (fund name / package reference);
+              fall back to formatted docType only when pkg.title is missing.
+              Removed the redundant ClassificationBadge chip next to the title —
+              Figma 57:2 communicates doc type through the AI summary prose only
+              (see holden-por159-design-vs-code-review.md §Frame 57:2). The
+              ConfidenceBadge was also a pre-Figma addition; the 1-line AI
+              summary already renders the confidence segment. */}
           <span className="flex flex-row items-center gap-2 min-w-0">
             <span className="font-display text-base font-normal text-fg-obsidian truncate leading-snug">
-              {pkg.docType ? formatDocType(pkg.docType) : pkg.title}
+              {pkg.title || (pkg.docType ? formatDocType(pkg.docType) : "Untitled package")}
             </span>
-            {pkg.docType && (
-              <span className="flex-shrink-0">
-                <ClassificationBadge docType={pkg.docType} />
-              </span>
-            )}
-            {typeof pkg.confidence === "number" && pkg.confidence > 0 && (
-              <span className="flex-shrink-0">
-                <ConfidenceBadge confidence={pkg.confidence} value={`${(pkg.confidence * 100).toFixed(0)}%`} />
-              </span>
-            )}
           </span>
-          {/* Subtitle: raw filename in muted tone */}
-          {pkg.subtitle && (
+          {/* Subtitle: raw filename in muted tone (shown only when distinct from title) */}
+          {pkg.subtitle && pkg.subtitle !== pkg.title && (
             <span className="font-interface text-xs text-fg-muted truncate">
               {pkg.subtitle}
             </span>

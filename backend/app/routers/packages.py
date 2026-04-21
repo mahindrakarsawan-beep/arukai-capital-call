@@ -141,6 +141,10 @@ class PackageDetailOut(PackageOut):
     classification_reasoning: Optional[str] = None
     model_used: Optional[str] = None
     classification_duration_ms: Optional[int] = None
+    # POR-161: resolved email for uploader, joined from users table. Frontend
+    # derives a display name from this (local-part, capitalized) instead of
+    # rendering the raw UUID in the "Package submitted by …" subtitle.
+    uploaded_by_email: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -630,6 +634,15 @@ async def get_package(
     if pkg.documents:
         first_clf = _get_current_classification(pkg.documents[0])
 
+    # POR-161: resolve uploader's email so the detail-page subtitle can render
+    # a display name instead of the raw UUID. One-shot join on the users table.
+    uploaded_by_email: Optional[str] = None
+    if pkg.uploaded_by:
+        user_row = await db.execute(
+            select(User.email).where(User.id == pkg.uploaded_by)
+        )
+        uploaded_by_email = user_row.scalar_one_or_none()
+
     return PackageDetailOut(
         id=pkg.id,
         title=pkg.title,
@@ -647,6 +660,7 @@ async def get_package(
         review_notes=notes_out,
         audit_trail=audit_out,
         approval=approval_out,
+        uploaded_by_email=uploaded_by_email,
         extracted_fields=first_clf.extracted_fields if first_clf else None,
         classification_reasoning=_build_classification_reasoning(first_clf),
         model_used=first_clf.model_version if first_clf else None,

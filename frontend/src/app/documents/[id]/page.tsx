@@ -30,6 +30,24 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * POR-161 #1: derive a display name for the "Package submitted by …" subtitle
+ * from a user's email local-part. Falls back through email → uuid → "Someone".
+ * Example: "naomi.ito@arukai.example" → "Naomi Ito". UUID inputs pass through
+ * unchanged so the subtitle still degrades gracefully if the server didn't join.
+ */
+function formatUploaderName(email: string | null | undefined, uuid: string | null | undefined): string {
+  if (email) {
+    const local = email.split("@")[0] ?? email;
+    return local
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ") || email;
+  }
+  return uuid ?? "Someone";
+}
+
 function formatDateTime(iso: string): string {
   try {
     return new Date(iso).toLocaleString("en-US", {
@@ -150,8 +168,15 @@ export default async function DocumentDetailPage({ params }: Props) {
             </div>
           </div>
           <p className="mt-1 font-interface text-sm text-fg-muted">
-            Package submitted {doc.uploaded_at ? formatDateTime(doc.uploaded_at) : "—"}
-            {doc.uploaded_by ? ` by ${doc.uploaded_by}` : ""}
+            {/* POR-161 #1 + follow-up: compose the subtitle defensively.
+                Figma: "Package submitted 2026-04-15 by Naomi Ito". If date is
+                missing, drop it cleanly — don't leave a dangling em-dash.
+                If name is missing, just say "Package submitted <date>". */}
+            Package submitted
+            {doc.uploaded_at ? ` ${formatDateTime(doc.uploaded_at)}` : ""}
+            {doc.uploaded_by_email || doc.uploaded_by
+              ? ` by ${formatUploaderName(doc.uploaded_by_email, doc.uploaded_by)}`
+              : ""}
           </p>
           {classification && (
             <p className="mt-0.5 font-interface text-sm text-fg-slate">
@@ -193,8 +218,11 @@ export default async function DocumentDetailPage({ params }: Props) {
               <div className="flex flex-col gap-3">
                 {(classification.model_version ?? doc.model_used) && (
                   <p className="font-interface text-[10px] text-fg-muted">
-                    Extracted by {classification.model_version ?? doc.model_used} on{" "}
-                    {doc.uploaded_at ? formatDateTime(doc.uploaded_at) : "—"}
+                    Extracted by {classification.model_version ?? doc.model_used}
+                    {/* POR-161 #3: drop the " on —" trailing em-dash when we
+                        don't have a date. Only render the "on <date>" clause
+                        when uploaded_at is present. */}
+                    {doc.uploaded_at ? ` on ${formatDateTime(doc.uploaded_at)}` : ""}
                   </p>
                 )}
 
