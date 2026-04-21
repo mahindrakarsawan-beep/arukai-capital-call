@@ -169,8 +169,10 @@ export function AIAnalysisBlock({
     classification_reasoning ??
     buildFallbackReasoning(doc_type, key_indicators);
 
-  // Model display string
-  const modelLabel = model_version_or_used ?? "Claude Haiku";
+  // Model display string. Default reflects current production primary (Sprint 3 swap:
+  // Mistral Small replaced Claude Haiku). "Claude Haiku" fallback would mislead clients
+  // about data residency when model_version is null.
+  const modelLabel = model_version_or_used ?? "Mistral Small";
 
   // Duration display
   const durationLabel =
@@ -198,9 +200,9 @@ export function AIAnalysisBlock({
         .sort(([a], [b]) => a.localeCompare(b))
     : [];
 
-  // Exception fields: confidence < 0.5
+  // Exception fields: confidence < 0.80 (POR-159 19d.3, matches backend _build_ai_summary threshold)
   const exceptionFields = fieldEntries.filter(
-    ([, field]) => typeof field.confidence === "number" && field.confidence < 0.5
+    ([, field]) => typeof field.confidence === "number" && field.confidence < 0.80
   );
 
   // Fallback overall confidence badge value

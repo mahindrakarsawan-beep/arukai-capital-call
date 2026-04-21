@@ -166,6 +166,37 @@ class ClaimRequest(BaseModel):
     pass  # No body needed
 
 
+# ── Intake-status response models (POR-159 19d.2) ──────────────────────────────
+
+class IntakeStepReceive(BaseModel):
+    filesize: Optional[str] = None       # human-readable, e.g. "2.4 MB"
+    mime_type: Optional[str] = None      # e.g. "application/pdf"
+
+
+class IntakeStepClassify(BaseModel):
+    doc_type: Optional[str] = None       # formatted, e.g. "Capital Call Notice"
+    confidence: Optional[float] = None   # 0.0–1.0
+    pending: bool = False                # true while classification in progress
+
+
+class IntakeStepExtract(BaseModel):
+    total_fields: Optional[int] = None   # count of resolved fields (value != None)
+    max_fields: Optional[int] = None     # total fields in the schema (denominator)
+    flagged_count: Optional[int] = None  # fields with confidence < 0.80
+
+
+class IntakeStepReady(BaseModel):
+    next_owner: Optional[str] = None     # e.g. "reviewer", "approver", "complete"
+
+
+class IntakeStatusOut(BaseModel):
+    current_step: int                    # 1..4 — which step is active
+    receive: Optional[IntakeStepReceive] = None
+    classify: Optional[IntakeStepClassify] = None
+    extract: Optional[IntakeStepExtract] = None
+    ready: Optional[IntakeStepReady] = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -178,26 +209,127 @@ def _get_current_classification(doc: Document) -> Optional[Classification]:
     return None
 
 
+def _format_filesize(size_bytes: Optional[int]) -> Optional[str]:
+    """Return '2.4 MB', '512 KB', '89 B', or None."""
+    if size_bytes is None or size_bytes < 0:
+        return None
+    if size_bytes >= 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes / 1024:.0f} KB"
+    return f"{size_bytes} B"
+
+
+# POR-159 19d.1 — human-readable doc-type display (drops "Notice"/"Agreement" suffixes).
+DOC_TYPE_DISPLAY: dict[str, str] = {
+    "capital_call_notice": "Capital Call",
+    "subscription_agreement": "Subscription",
+    "side_letter": "Side Letter",
+    "k1": "K-1",
+    "wire_instructions": "Wire Instructions",
+    "other": "Document",
+}
+
+
+def _format_amount(raw: Any) -> Optional[str]:
+    """Currency summary: 120000000 → '$120M', 12500 → '$12K', 89 → '$89', bad → None.
+
+    Preserves sign, strips symbols/commas/whitespace on string input, passes through
+    already-formatted like '120M' by prefixing '$'. Returns None on parse failure so
+    the caller can drop the segment cleanly rather than render '$None'.
+    """
+    if raw is None or raw == "":
+        return None
+    try:
+        if isinstance(raw, str):
+            s = raw.replace("$", "").replace("€", "").replace("£", "").replace(",", "").strip()
+            if not s:
+                return None
+            # Already in short form like "120M" / "12K" / "-120M"
+            if s.endswith(("M", "m", "K", "k")):
+                return f"${s[:-1]}{s[-1].upper()}"
+            amount = float(s)
+        else:
+            amount = float(raw)
+    except (ValueError, TypeError):
+        return None
+
+    sign = "-" if amount < 0 else ""
+    absamt = abs(amount)
+    if absamt >= 1_000_000:
+        return f"{sign}${int(absamt / 1_000_000)}M"
+    if absamt >= 1_000:
+        return f"{sign}${int(absamt / 1_000)}K"
+    return f"{sign}${int(absamt)}"
+
+
+def _format_due_date(raw: Any) -> Optional[str]:
+    """ISO date → 'May 15' (current year) or 'May 15, 2027' (other year). None on fail."""
+    if not raw:
+        return None
+    try:
+        date_str = str(raw).split("T")[0]
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+    if d.year == datetime.now(timezone.utc).year:
+        return d.strftime("%b %d")
+    return d.strftime("%b %d, %Y")
+
+
 def _build_ai_summary(clf: Optional[Classification]) -> str:
-    """Generate a one-line AI intelligence summary from a classification record."""
+    """Generate a one-line AI intelligence summary from a classification record.
+
+    Target format (POR-149):
+      "Capital Call · $120M due May 15 · 8 fields extracted · 99% confidence · 1 flagged"
+
+    Segments drop gracefully when their data is missing (amount/date parse fail,
+    no fields extracted, etc.).
+    """
     if not clf:
         return "Awaiting classification"
-    parts = [clf.document_type.replace("_", " ").title()]
+
+    doc_type_key = clf.document_type or ""
+    doc_type = DOC_TYPE_DISPLAY.get(
+        doc_type_key, doc_type_key.replace("_", " ").title() or "Document"
+    )
+    parts = [doc_type]
+
     fields = clf.extracted_fields or {}
-    if "amount_due" in fields and isinstance(fields["amount_due"], dict):
-        val = fields["amount_due"].get("value")
-        if val:
-            parts.append(str(val))
-    if "due_date" in fields and isinstance(fields["due_date"], dict):
-        val = fields["due_date"].get("value")
-        if val:
-            parts.append(f"due {val}")
+
+    # Amount + date segment
+    amount = None
+    due_date = None
+    if isinstance(fields.get("amount_due"), dict):
+        amount = _format_amount(fields["amount_due"].get("value"))
+    if isinstance(fields.get("due_date"), dict):
+        due_date = _format_due_date(fields["due_date"].get("value"))
+
+    if amount and due_date:
+        parts.append(f"{amount} due {due_date}")
+    elif amount:
+        parts.append(amount)
+    elif due_date:
+        parts.append(f"due {due_date}")
+
+    # Field count segment (resolved fields only)
+    field_count = sum(
+        1 for f in fields.values()
+        if isinstance(f, dict) and f.get("value") is not None
+    )
+    if field_count > 0:
+        parts.append(f"{field_count} fields extracted")
+
+    # Confidence segment
     parts.append(f"{int(clf.confidence * 100)}% confidence")
+
+    # Flagged segment — threshold matches frontend AIAnalysisBlock 0.80 (POR-148 spec)
     flagged = sum(
         1 for f in fields.values()
-        if isinstance(f, dict) and f.get("confidence", 1) < 0.5
+        if isinstance(f, dict) and f.get("confidence", 1) < 0.80
     )
     parts.append(f"{flagged} flagged" if flagged else "0 flags")
+
     return " · ".join(parts)
 
 
@@ -537,6 +669,108 @@ async def download_pdf(
         content=doc.content,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{doc.filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Intake status (POR-159 19d.2) — drives IntakeCeremony real AI narration
+# ---------------------------------------------------------------------------
+
+@router.get("/{pkg_id}/intake-status", response_model=IntakeStatusOut)
+async def get_package_intake_status(
+    pkg_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return step-level intake state for the frontend IntakeCeremony component.
+
+    Maps the 4-step intake ceremony (receive → classify → extract → ready) onto
+    the package's current state + classification data. Each step is None until
+    the underlying data is available; current_step tracks the highest populated
+    step so the frontend can render the active card.
+    """
+    result = await db.execute(
+        select(Package)
+        .options(selectinload(Package.documents).selectinload(Document.classifications))
+        .where(Package.id == pkg_id)
+    )
+    pkg = result.scalar_one_or_none()
+    if pkg is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    doc = pkg.documents[0] if pkg.documents else None
+    clf = _get_current_classification(doc) if doc else None
+
+    # Step 1 (receive)
+    receive = IntakeStepReceive(
+        filesize=_format_filesize(getattr(doc, "size_bytes", None)) if doc else None,
+        mime_type=doc.mime_type if doc else None,
+    ) if doc else None
+
+    # Step 2 (classify)
+    if clf:
+        doc_type_key = clf.document_type or ""
+        classify = IntakeStepClassify(
+            doc_type=DOC_TYPE_DISPLAY.get(
+                doc_type_key, doc_type_key.replace("_", " ").title() or "Document"
+            ),
+            confidence=clf.confidence,
+            pending=False,
+        )
+    elif doc and pkg.state == "submitted":
+        classify = IntakeStepClassify(pending=True)
+    else:
+        classify = None
+
+    # Step 3 (extract)
+    if clf and clf.extracted_fields:
+        fields = clf.extracted_fields
+        total = sum(
+            1 for f in fields.values()
+            if isinstance(f, dict) and f.get("value") is not None
+        )
+        flagged = sum(
+            1 for f in fields.values()
+            if isinstance(f, dict) and f.get("confidence", 1) < 0.80
+        )
+        extract = IntakeStepExtract(
+            total_fields=total,
+            max_fields=len(fields),
+            flagged_count=flagged,
+        )
+    else:
+        extract = None
+
+    # Step 4 (ready)
+    if pkg.state in (
+        "intake_complete", "under_review", "routed_for_approval", "decision_recorded"
+    ):
+        next_owner = {
+            "intake_complete": "reviewer",
+            "under_review": "reviewer",
+            "routed_for_approval": "approver",
+            "decision_recorded": "complete",
+        }.get(pkg.state, "reviewer")
+        ready = IntakeStepReady(next_owner=next_owner)
+    else:
+        ready = None
+
+    # current_step = highest populated
+    if ready is not None:
+        current_step = 4
+    elif extract is not None:
+        current_step = 3
+    elif classify is not None:
+        current_step = 2
+    else:
+        current_step = 1
+
+    return IntakeStatusOut(
+        current_step=current_step,
+        receive=receive,
+        classify=classify,
+        extract=extract,
+        ready=ready,
     )
 
 

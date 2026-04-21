@@ -248,11 +248,33 @@ export default async function DocumentDetailPage({ params }: Props) {
             )}
           </div>
 
-          {/* Block 3: AI Analysis (POR-148) — full width across both columns */}
-          {classification && (
+          {/* Block 3: AI Analysis (POR-148) — full width across both columns.
+              POR-159 19d.3: gate on either nested classification OR top-level AI
+              fields. POR-151 moved fields top-level; existing seed packages have
+              `classification: null` in the response, which was hiding this block
+              entirely despite the AI data being present. Miller caught this. */}
+          {(classification ||
+            doc.extracted_fields ||
+            doc.classification_reasoning ||
+            doc.model_used) && (
             <div className="lg:col-span-2">
               <AIAnalysisBlock
-                classification={classification}
+                classification={
+                  classification ?? {
+                    // Synthesize a minimal Classification stub from top-level AI
+                    // data so AIAnalysisBlock's prop contract holds when the
+                    // nested classification is null. doc_type/confidence aren't
+                    // available at top-level on PackageDetail — AIAnalysisBlock
+                    // will fall through to its overall-confidence fallback.
+                    doc_type: "other",
+                    confidence: 0,
+                    key_indicators: [],
+                    extracted_fields: doc.extracted_fields ?? undefined,
+                    classification_reasoning: doc.classification_reasoning ?? null,
+                    model_version: doc.model_used ?? undefined,
+                    duration_ms: doc.classification_duration_ms ?? undefined,
+                  }
+                }
                 analysedAt={doc.uploaded_at ?? new Date().toISOString()}
                 extractedFields={doc.extracted_fields ?? undefined}
                 reasoning={doc.classification_reasoning ?? undefined}
