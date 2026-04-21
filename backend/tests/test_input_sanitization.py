@@ -1,33 +1,13 @@
-# ---------------------------------------------------------------------------
-# POR-158 #8 A1.1 audit findings (2026-04-21)
-#
-# Filename surfaces where UploadFile.filename flows today (no normalization):
-#   * backend/app/routers/packages.py upload_package (~L403-L453):
-#       - validate_pdf(raw, file.filename) — filename only logged on JS-reject,
-#         never rejected on content
-#       - Document(filename=file.filename or "upload.pdf") — stored verbatim
-#       - _write_audit after_state={"filename": doc.filename, ...} — raw in
-#         hash-chained audit row (GET /audit/{pkg_id})
-#       - classify_document_text(filename=doc.filename) -> prompt-injection
-#         surface: classify.py L240 interpolates "Document filename: {filename}"
-#         directly into the LLM user message (and into _heuristic_type L124)
-#       - returned in PackageOut / PackageDetailOut / PackageListOut + download
-#         Content-Disposition header (L704) — CRLF/header-smuggling surface
-#   * No central sanitize helper exists; no basename(), no null-byte strip,
-#     no path-separator strip. Any fix in Task 2 must land once and be called
-#     at the upload boundary before Document() + audit + classify.
-#
-# Test shape note: PackageDetailOut has NO top-level "filename" — the plan's
-# stub used detail["filename"] which only exists on PackageListOut. Corrected
-# to detail["documents"][0]["filename"] (per DocumentOut schema L61-L69).
-# Audit endpoint confirmed at GET /audit/{pkg_id} (audit.py L222).
-# ---------------------------------------------------------------------------
+# POR-158 #8 A1.1 audit findings → plan doc §A1.1
+# Schema note: PackageDetailOut has no top-level "filename"; filenames live
+# under detail["documents"][i]["filename"]. Audit endpoint is GET /audit/{pkg_id}.
+# Null-byte case passes because Starlette's multipart parser strips it upstream.
 """POR-158 #8 — upload with hostile filenames never leaks past the API surface.
 
 Each hostile filename must:
   1. upload cleanly (201) — we don't 400 on the input; storage is inert
-  2. appear in the GET /packages/{id} response as an *escaped* representation
-     (no raw shell metacharacters, no path traversal segments)
+  2. appear in the GET /packages/{id} response as a sanitized filename —
+     stripped of path separators, null bytes, traversal segments, and CRLF
   3. appear in the audit event's after_state sanitized the same way
 """
 import io
@@ -41,6 +21,8 @@ HOSTILE_FILENAMES = [
     "<script>alert(1)</script>.pdf",
     "file; DROP TABLE packages;--.pdf",
     "file\x00injection.pdf",
+    "file\r\nContent-Disposition: attachment\r\n.pdf",
+    "..\\..\\..\\windows\\system32\\evil.pdf",
 ]
 
 
@@ -62,7 +44,7 @@ def test_hostile_filename_is_sanitized_everywhere(client: TestClient, hostile: s
     reviewer_token = _login(client, "reviewer@arukai.example", "reviewer123")
     resp = client.post(
         "/packages/upload",
-        data={"title": f"Sanitize test: {hostile}"},
+        data={"title": "Sanitize test"},
         files={"file": (hostile, io.BytesIO(_pdf_bytes()), "application/pdf")},
         headers={"Authorization": f"Bearer {reviewer_token}"},
     )
@@ -72,24 +54,43 @@ def test_hostile_filename_is_sanitized_everywhere(client: TestClient, hostile: s
     # Detail response: filename must be stored but stripped of path separators.
     # PackageDetailOut surfaces filenames on each DocumentOut in `documents[]`;
     # there is no top-level `filename` on the detail payload.
-    detail = client.get(
+    detail_resp = client.get(
         f"/packages/{pkg_id}",
         headers={"Authorization": f"Bearer {reviewer_token}"},
-    ).json()
+    )
+    assert detail_resp.status_code == 200, detail_resp.text
+    detail = detail_resp.json()
     assert detail["documents"], f"detail missing documents: {detail!r}"
     stored = detail["documents"][0]["filename"]
     assert ".." not in stored, f"path traversal leaked into detail: {stored!r}"
     assert "/" not in stored and "\\" not in stored
     assert "\x00" not in stored, "null byte must be stripped"
+    assert stored, "filename must not be empty after sanitization"
+    assert stored.endswith(".pdf"), f"extension must survive: {stored!r}"
+    assert "\r" not in stored and "\n" not in stored, f"CRLF in stored: {stored!r}"
 
-    # Audit: after_state JSON must not contain raw shell metacharacters
+    # Audit: the filename field specifically must be sanitized. Other fields
+    # (title, state) are constants and don't carry the hostile payload, so we
+    # avoid a dict-wide substring scan that would false-positive on a legit
+    # package title mentioning "DROP TABLE" etc.
     admin_token = _login(client, "admin@arukai.example", "admin123")
-    audit = client.get(
+    audit_resp = client.get(
         f"/audit/{pkg_id}",
         headers={"Authorization": f"Bearer {admin_token}"},
-    ).json()
+    )
+    assert audit_resp.status_code == 200, audit_resp.text
+    audit = audit_resp.json()
     for ev in audit:
-        after = str(ev.get("after_state") or "")
-        assert "$(rm" not in after
-        assert "DROP TABLE" not in after
-        assert "<script>" not in after
+        after = ev.get("after_state") or {}
+        # API may return JSON string or already-parsed dict depending on serializer
+        if isinstance(after, str):
+            import json as _json
+            after = _json.loads(after)
+        fn = str(after.get("filename") or "")
+        assert ".." not in fn, f"path traversal in audit filename: {fn!r}"
+        assert "/" not in fn and "\\" not in fn
+        assert "\x00" not in fn
+        assert "$(rm" not in fn
+        assert "DROP TABLE" not in fn
+        assert "<script>" not in fn
+        assert "\r" not in fn and "\n" not in fn, f"CRLF in audit filename: {fn!r}"
