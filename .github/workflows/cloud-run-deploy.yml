@@ -98,6 +98,10 @@ jobs:
             DATABASE_URL=DATABASE_URL:latest
             JWT_SECRET=JWT_SECRET:latest
             ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
+            MISTRAL_API_KEY=MISTRAL_API_KEY:latest
+            WINDMILL_TOKEN=WINDMILL_TOKEN:latest
+          env_vars: |
+            BACKUP_GCS_BUCKET=${{ vars.BACKUP_GCS_BUCKET }}
 
       - name: Deploy frontend to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
