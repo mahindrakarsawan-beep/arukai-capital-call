@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 
-CODESTRAL_URL = "https://codestral.mistral.ai/v1/chat/completions"
+CODESTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 CODESTRAL_MODEL = "codestral-latest"
 MAX_CONTEXT_LINES = 200
 
@@ -148,8 +148,9 @@ def main():
     parser.add_argument("--output", help="Write output to file (default: stdout)")
     parser.add_argument("--review-only", action="store_true", help="Show output, don't write")
     parser.add_argument("--tdd", action="store_true", help="TDD mode: generate failing tests first, then implementation")
-    parser.add_argument("--key", default=os.environ.get("CODESTRAL_API_KEY", ""),
-                        help="Codestral API key")
+    parser.add_argument("--key",
+                        default=os.environ.get("CODESTRAL_API_KEY") or os.environ.get("MISTRAL_API_KEY", ""),
+                        help="Mistral / Codestral API key (MISTRAL_API_KEY or CODESTRAL_API_KEY env var)")
     parser.add_argument("--max-tokens", type=int, default=4000)
     args = parser.parse_args()
 
