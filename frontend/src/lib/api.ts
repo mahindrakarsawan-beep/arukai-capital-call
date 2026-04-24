@@ -433,6 +433,46 @@ export async function transitionPackage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Flag field for human review (POR-160) — reviewer signals a low-confidence
+// extracted field for a manual pair-of-eyes pass. Writes an AuditEvent with
+// action="field_review_requested"; no state mutation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FlagFieldResponse {
+  package_id: string;
+  field_name: string;
+  requested_by: string;
+  requested_at: string;
+  audit_event_id: string;
+}
+
+/**
+ * POST /packages/{id}/flag-field
+ * Role gate: reviewer, approver, admin.
+ * Idempotency: server writes a new audit event on every call. The UI shows
+ * "Requested" after the first success to suppress double-taps.
+ */
+export async function flagFieldForReview(
+  packageId: string,
+  fieldName: string,
+  token: string,
+  opts?: { fieldConfidence?: number; note?: string }
+): Promise<FlagFieldResponse> {
+  const body: Record<string, unknown> = { field_name: fieldName };
+  if (typeof opts?.fieldConfidence === "number") {
+    body.field_confidence = opts.fieldConfidence;
+  }
+  if (opts?.note) body.note = opts.note;
+
+  const res = await fetch(`${API_BASE}/packages/${packageId}/flag-field`, {
+    method: "POST",
+    headers: buildHeaders(token),
+    body: JSON.stringify(body),
+  });
+  return handleResponse<FlagFieldResponse>(res);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Utilities
 // ─────────────────────────────────────────────────────────────────────────────
 

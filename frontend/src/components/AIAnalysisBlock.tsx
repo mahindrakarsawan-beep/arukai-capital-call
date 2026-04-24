@@ -1,3 +1,4 @@
+"use client";
 /**
  * AIAnalysisBlock — POR-148 / Figma node 61:2
  *
@@ -6,9 +7,15 @@
  * from the Claude Haiku classification pipeline:
  *
  *   1. Header: "AI ANALYSIS" label + model attribution (right-aligned)
+ *      POR-160 Change 1: attribution lifted from text-xs/muted to
+ *      text-sm/medium obsidian so the model+duration ceremony is readable
+ *      without leaning in. Client-persona review flagged the previous
+ *      styling as "quiet to the point of absent".
  *   2. Classification reasoning paragraph
  *   3. Field-level extraction table (value, source_text, confidence per field)
- *   4. Exception callout (amber) for any field with confidence < 0.5
+ *   4. Exception callout (amber) for any field with confidence < 0.80 —
+ *      POR-160 Change 2 adds an inline "Request human review" button
+ *      that POSTs /packages/{id}/flag-field and writes an audit event.
  *   5. Model attribution footer line
  *
  * Brass accent border: rgba(184,145,78,0.35) on left edge (spec §9.3 note:
@@ -20,8 +27,9 @@
  * back to generating reasoning from key_indicators.
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
+import { flagFieldForReview } from "@/lib/api";
 import type { Classification } from "@/lib/api";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,6 +157,13 @@ export interface AIAnalysisBlockProps {
    * Takes priority over classification.duration_ms when present.
    */
   durationMs?: number | null;
+  /**
+   * POR-160: package id + auth token threaded through for the
+   * "Request human review" action on ExceptionCallout. If either is
+   * missing (e.g. preview / storybook mode), the button is hidden.
+   */
+  packageId?: string | null;
+  token?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,10 +173,49 @@ export interface AIAnalysisBlockProps {
 interface ExceptionCalloutProps {
   fieldName: string;
   confidence: number;
+  /** POR-160: when both packageId + token are present, the "Request human
+   *  review" button is rendered and calls POST /packages/{id}/flag-field. */
+  packageId?: string | null;
+  token?: string | null;
 }
 
-function ExceptionCallout({ fieldName, confidence }: ExceptionCalloutProps) {
+type RequestState = "idle" | "pending" | "requested" | "error";
+
+function ExceptionCallout({
+  fieldName,
+  confidence,
+  packageId,
+  token,
+}: ExceptionCalloutProps) {
   const pct = Math.round(confidence * 100);
+  const canRequest = Boolean(packageId && token);
+  const [status, setStatus] = useState<RequestState>("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleRequest = async () => {
+    if (!packageId || !token) return;
+    // Allow firing from idle or error (retry); block while pending or already requested.
+    if (status !== "idle" && status !== "error") return;
+    setStatus("pending");
+    setErrorMsg(null);
+    try {
+      await flagFieldForReview(packageId, fieldName, token, {
+        fieldConfidence: confidence,
+      });
+      setStatus("requested");
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(
+        err instanceof Error ? err.message : "Failed to request review"
+      );
+    }
+  };
+
+  let buttonLabel = "Request human review";
+  if (status === "pending") buttonLabel = "Requesting…";
+  else if (status === "requested") buttonLabel = "Review requested";
+  else if (status === "error") buttonLabel = "Retry request";
+
   return (
     <div
       role="alert"
@@ -176,10 +230,40 @@ function ExceptionCallout({ fieldName, confidence }: ExceptionCalloutProps) {
       >
         !
       </span>
-      <p className="font-interface text-xs" style={{ color: "#9A7639" }}>
-        <strong className="font-semibold">{formatFieldName(fieldName)}</strong>{" "}
-        has low confidence ({pct}%). Manual verification recommended.
-      </p>
+      <div className="flex flex-1 flex-col gap-1.5">
+        <p className="font-interface text-xs" style={{ color: "#9A7639" }}>
+          <strong className="font-semibold">{formatFieldName(fieldName)}</strong>{" "}
+          has low confidence ({pct}%). Manual verification recommended.
+        </p>
+        {canRequest && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid={`flag-field-button-${fieldName}`}
+              onClick={handleRequest}
+              disabled={status !== "idle" && status !== "error"}
+              aria-label={`Request human review for ${formatFieldName(fieldName)}`}
+              aria-pressed={status === "requested"}
+              className="font-interface text-xs font-medium underline-offset-2 transition-colors disabled:cursor-not-allowed disabled:opacity-70"
+              style={{
+                color: status === "requested" ? "#6B5530" : "#9A7639",
+                textDecoration: status === "idle" || status === "error" ? "underline" : "none",
+              }}
+            >
+              {buttonLabel}
+            </button>
+            {status === "error" && errorMsg && (
+              <span
+                data-testid={`flag-field-error-${fieldName}`}
+                className="font-interface text-[10px]"
+                style={{ color: "#9A7639" }}
+              >
+                {errorMsg}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -195,6 +279,8 @@ export function AIAnalysisBlock({
   reasoning: topLevelReasoning,
   modelUsed: topLevelModelUsed,
   durationMs: topLevelDurationMs,
+  packageId,
+  token,
 }: AIAnalysisBlockProps) {
   // Defensive destructure: API may return null for optional fields on packages
   // classified before POR-151 shipped (old Haiku pipeline). Never crash on null.
@@ -279,7 +365,10 @@ export function AIAnalysisBlock({
         >
           AI Analysis
         </h2>
-        <span className="font-interface text-xs text-fg-muted text-right">
+        <span
+          data-testid="model-attribution-header"
+          className="font-interface text-sm font-medium text-fg-obsidian text-right"
+        >
           {attributionLine}
         </span>
       </div>
@@ -368,6 +457,8 @@ export function AIAnalysisBlock({
               key={key}
               fieldName={key}
               confidence={field.confidence}
+              packageId={packageId}
+              token={token}
             />
           ))}
         </div>

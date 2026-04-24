@@ -170,6 +170,21 @@ class ClaimRequest(BaseModel):
     pass  # No body needed
 
 
+class FlagFieldRequest(BaseModel):
+    """POR-160: reviewer requests a human re-check on a low-confidence field."""
+    field_name: str
+    field_confidence: Optional[float] = None  # 0.0-1.0, for audit context
+    note: Optional[str] = None
+
+
+class FlagFieldResponse(BaseModel):
+    package_id: str
+    field_name: str
+    requested_by: str  # user.id
+    requested_at: datetime
+    audit_event_id: str
+
+
 # ── Intake-status response models (POR-159 19d.2) ──────────────────────────────
 # The frontend IntakeStepData interface uses camelCase per JS convention.
 # Pydantic fields stay snake_case for Python ergonomics; alias_generator emits
@@ -1152,6 +1167,67 @@ async def attest_package(
     await db.commit()
     await db.refresh(approval)
     return approval
+
+
+# ---------------------------------------------------------------------------
+# POR-160: Request human review on a low-confidence extracted field
+# ---------------------------------------------------------------------------
+
+@router.post("/{pkg_id}/flag-field", response_model=FlagFieldResponse, status_code=201)
+async def flag_field_for_review(
+    pkg_id: str,
+    body: FlagFieldRequest,
+    current_user: User = Depends(require_role("reviewer", "approver", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record a reviewer's request to have a low-confidence extracted field
+    manually verified by a human.
+
+    This is a pure audit-trail event — no state transition, no package mutation.
+    Surfaced by POR-160 from Mistral-Large client-persona review: the amber
+    ExceptionCallout on the AI Analysis block was one-way signal; family-office
+    reviewers wanted a way to close the loop and log that they'd asked for a
+    second pair of eyes.
+
+    Idempotency: a reviewer may flag the same field multiple times; each click
+    writes a new AuditEvent. The frontend shows 'Requested' after the first
+    successful call to suppress visual double-taps, but the server doesn't
+    enforce uniqueness — review requests are signals, not state.
+    """
+    pkg = await _get_package_or_404(db, pkg_id)
+
+    field_name = (body.field_name or "").strip()
+    if not field_name:
+        raise HTTPException(status_code=400, detail="field_name is required")
+
+    after_state: dict[str, Any] = {
+        "package_id": pkg.id,
+        "field_name": field_name,
+        "requested_by": current_user.id,
+    }
+    if body.field_confidence is not None:
+        after_state["field_confidence"] = body.field_confidence
+    if body.note:
+        after_state["note"] = body.note
+
+    event = AuditEvent(
+        package_id=pkg.id,
+        actor_user_id=current_user.id,
+        action="field_review_requested",
+        before_state=None,
+        after_state=after_state,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+
+    return FlagFieldResponse(
+        package_id=pkg.id,
+        field_name=field_name,
+        requested_by=current_user.id,
+        requested_at=event.created_at,
+        audit_event_id=event.id,
+    )
 
 
 # ---------------------------------------------------------------------------
