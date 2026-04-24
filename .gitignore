@@ -16,3 +16,6 @@ coverage/
 *.tsbuildinfo
 *.db
 qa_screenshots/
+
+# Git worktrees — superpowers subagent-driven workflow
+.worktrees/

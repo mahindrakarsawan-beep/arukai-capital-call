@@ -15,6 +15,7 @@ from app.auth import (
     hash_password,
     verify_password,
 )
+from app.audit_chain import create_audit_event
 from app.db import get_db
 from app.models import AuditEvent, Session, User
 
@@ -81,12 +82,13 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         existing.refresh_token_hash = refresh_hash
         existing.refresh_expires_at = refresh_expires
 
-    audit = AuditEvent(
+    await create_audit_event(
+        db,
+        package_id=None,
         actor_user_id=user.id,
         action="login",
         after_state={"email": user.email, "role": user.role},
     )
-    db.add(audit)
 
     await db.commit()
 
@@ -123,12 +125,13 @@ async def logout(
     for s in sessions:
         s.revoked_at = now
 
-    audit = AuditEvent(
+    await create_audit_event(
+        db,
+        package_id=None,
         actor_user_id=current_user.id,
         action="logout",
         after_state={"email": current_user.email},
     )
-    db.add(audit)
 
     await db.commit()
     return {"message": "Logged out"}
@@ -158,12 +161,13 @@ async def change_password(
     from app.auth import revoke_all_sessions
     await revoke_all_sessions(current_user.id, db)
 
-    audit = AuditEvent(
+    await create_audit_event(
+        db,
+        package_id=None,
         actor_user_id=current_user.id,
         action="password_changed",
         after_state={"email": current_user.email},
     )
-    db.add(audit)
     await db.commit()
 
     return {"message": "Password changed. All sessions revoked — please re-login."}
@@ -303,12 +307,13 @@ async def oidc_callback(
     session = Session(user_id=user.id, token_hash=_hash_token(token), expires_at=expires_at)
     db.add(session)
 
-    audit = AuditEvent(
+    await create_audit_event(
+        db,
+        package_id=None,
         actor_user_id=user.id,
         action="oidc_login",
         after_state={"email": email, "role": role, "idp": issuer},
     )
-    db.add(audit)
     await db.commit()
 
     return {"access_token": token, "token_type": "bearer",
